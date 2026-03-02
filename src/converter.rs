@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-struct Heading<T>(Option<String>, T);
+type Heading<T> = (Option<String>, T);
 struct Text(Heading<Vec<Chapter>>);
 
 enum Punctuation {}
@@ -8,7 +8,7 @@ struct Word {
     word: String,
     prounouciation: Option<String>,
     translation: Option<String>,
-    punctuation: Punctuation,
+    punctuation: Option<Punctuation>,
 }
 enum Section {
     Word(Word),
@@ -23,6 +23,26 @@ enum Section {
 pub struct Paragraph(Heading<Vec<Section>>);
 pub struct Chapter(Heading<Vec<Paragraph>>);
 
-fn parse() -> Text {
-    todo!()
+fn parse(s: &str) -> Text {
+    Text((
+        None,
+        vec![Chapter((
+            None,
+            vec![
+                (Paragraph((
+                    None,
+                    s.split(' ')
+                        .map(|t| {
+                            Section::Word(Word {
+                                word: t.to_string(),
+                                prounouciation: None,
+                                translation: None,
+                                punctuation: None,
+                            })
+                        })
+                        .collect(),
+                ))),
+            ],
+        ))],
+    ))
 }
