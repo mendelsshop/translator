@@ -1,15 +1,20 @@
 use std::collections::HashMap;
 
 type Heading<T> = (Option<String>, T);
-struct Text(Heading<Vec<Chapter>>);
 
+#[derive(Debug, Clone)]
+pub struct Text(Heading<Vec<Chapter>>);
+
+#[derive(Debug, Clone)]
 enum Punctuation {}
+#[derive(Debug, Clone)]
 struct Word {
     word: String,
     prounouciation: Option<String>,
     translation: Option<String>,
     punctuation: Option<Punctuation>,
 }
+#[derive(Debug, Clone)]
 enum Section {
     Word(Word),
     Parenthesis(char, Vec<Section>),
@@ -20,7 +25,9 @@ enum Section {
     Points(HashMap<usize, Section>),
 }
 
+#[derive(Debug, Clone)]
 pub struct Paragraph(Heading<Vec<Section>>);
+#[derive(Debug, Clone)]
 pub struct Chapter(Heading<Vec<Paragraph>>);
 
 fn parse(s: &str) -> Text {
