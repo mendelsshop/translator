@@ -1,9 +1,15 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 type Heading<T> = (Option<String>, T);
 
 #[derive(Debug, Clone)]
 pub struct Text(Heading<Vec<Chapter>>);
+
+impl fmt::Display for Text {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "")
+    }
+}
 
 #[derive(Debug, Clone)]
 enum Punctuation {}
