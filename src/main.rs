@@ -44,7 +44,7 @@ impl AppState<'_> {
         matches!(
             self.kind,
             AppStateKind::Translating {
-                translation_state: TranslationState::Normal,
+                translation_state: TranslationState::Editing,
                 ..
             }
         )
@@ -122,6 +122,17 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
                 ..
             }) if app.in_normal_mode() => {
                 break Ok(());
+            }
+            Event::Key(KeyEvent {
+                code: KeyCode::Esc, ..
+            }) => {
+                if let AppStateKind::Translating {
+                    translation_state: translation_state @ TranslationState::Editing,
+                    ..
+                } = &mut app.kind
+                {
+                    *translation_state = TranslationState::Normal
+                }
             }
             _ if app.in_editing_mode() => {
                 app.input_buffer.input(event);
