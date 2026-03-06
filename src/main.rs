@@ -1,5 +1,6 @@
 mod converter;
 
+mod structure;
 use core::fmt;
 
 use color_eyre::Result;
@@ -12,6 +13,8 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 use ratatui_textarea::TextArea;
+
+use crate::structure::Cursor;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -36,6 +39,7 @@ fn main() -> Result<()> {
 #[derive(Debug, Clone, Default)]
 pub struct AppState<'a> {
     kind: AppStateKind,
+
     status: Status,
     pub input_buffer: TextArea<'a>,
 }
@@ -62,7 +66,8 @@ pub enum TranslationState {
 #[derive(Debug, Clone, Default)]
 pub enum AppStateKind {
     Translating {
-        current: converter::Text,
+        postion: Cursor,
+        current: structure::Text,
         translation_state: TranslationState,
     },
     #[default]
@@ -160,6 +165,7 @@ fn render(app: &AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
             AppStateKind::Translating {
                 current,
                 translation_state: _,
+                postion: _,
             } => &current.to_string(),
             AppStateKind::New => "Please load or create a new translation",
         };
