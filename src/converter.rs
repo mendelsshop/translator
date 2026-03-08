@@ -1,12 +1,12 @@
-use crate::structure::{self, Chapter, Paragraph, Section, Word};
+use crate::structure::{self, Heading, Section, Word};
 
 pub fn parse(s: &str) -> structure::Text {
-    structure::Text((
+    Heading(
         None,
-        vec![Chapter((
+        vec![Heading(
             None,
             vec![
-                (Paragraph((
+                (Heading(
                     None,
                     s.split(' ')
                         .map(|t| {
@@ -18,8 +18,8 @@ pub fn parse(s: &str) -> structure::Text {
                             })
                         })
                         .collect(),
-                ))),
+                )),
             ],
-        ))],
-    ))
+        )],
+    )
 }
