@@ -8,10 +8,12 @@ pub struct Heading<T>(pub Option<String>, pub Vec<T>);
 pub type Text = Heading<Chapter>;
 pub type Chapter = Heading<Paragraph>;
 pub type Paragraph = Heading<Section>;
+pub type Sentence = Heading<Word>;
 
 pub type Cursor = HeadingCursor<ChapterCursor>;
 pub type ChapterCursor = HeadingCursor<ParagraphCursor>;
 pub type ParagraphCursor = HeadingCursor<SectionCursor>;
+pub type SentenceCursor = HeadingCursor<WordCursor>;
 
 impl fmt::Display for Text {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -34,30 +36,31 @@ pub(crate) struct Word {
 pub(crate) enum Section {
     Word(Word),
     Parenthesis(char, Vec<Section>),
-    Sentence {
-        words: Vec<Word>,
-        description: String,
-    },
+    Sentence(Sentence),
     Points(HashMap<usize, Section>),
 }
 impl Get for Section {
     fn get_mut(&mut self, chapter_cursor: SectionCursor) -> Option<Edit<'_>> {
         match (self, chapter_cursor) {
-            (Section::Word(_word), SectionCursor::Word(_word_cursor)) => todo!(),
+            (Section::Word(word), SectionCursor::Word(word_cursor)) => word.get_mut(word_cursor),
             (
-                Section::Parenthesis(_, _sections),
-                SectionCursor::Parenthesis(_parenthesis_cursor),
-            ) => {
-                todo!()
+                Section::Parenthesis(parenthesis, sections),
+                SectionCursor::Parenthesis(parenthesis_cursor),
+            ) => match parenthesis_cursor {
+                ParenthesisCursor::Char => Some(Edit {
+                    position: 0,
+                    kind: EditKind::Char(parenthesis),
+                }),
+                ParenthesisCursor::Section(cursor, section_cursor) => sections
+                    .get_mut(cursor)
+                    .and_then(|section| section.get_mut(*section_cursor)),
+            },
+            (Section::Sentence(sentence), SectionCursor::Sentence(sentence_cursor)) => {
+                sentence.get_mut(sentence_cursor)
             }
-            (
-                Section::Sentence {
-                    words: _,
-                    description: _,
-                },
-                SectionCursor::Sentence(_sentence_cursor),
-            ) => todo!(),
-            (Section::Points(_hash_map), SectionCursor::Points(_point_cursor)) => todo!(),
+            (Section::Points(hash_map), SectionCursor::Points(point_cursor)) => hash_map
+                .get_mut(&point_cursor.0)
+                .and_then(|s| s.get_mut(*point_cursor.1)),
             _ => None,
         }
     }
@@ -94,17 +97,38 @@ pub enum ParenthesisCursor {
     Char,
     Section(usize, Box<SectionCursor>),
 }
-#[derive(Debug, Clone)]
-pub enum SentenceCursor {
-    Description(usize),
-    Word(usize, WordCursor),
-}
+
 #[derive(Debug, Clone)]
 pub enum WordCursor {
     Word(usize),
     Prounouciation(usize),
     Translation(usize),
     Punctuation(usize),
+}
+
+impl Get for Word {
+    type Cursor = WordCursor;
+
+    fn get_mut(&mut self, cursor: Self::Cursor) -> Option<Edit<'_>> {
+        match cursor {
+            WordCursor::Word(position) => Some(Edit {
+                position,
+                kind: EditKind::String(&mut self.word),
+            }),
+            WordCursor::Prounouciation(position) => Some(Edit {
+                position,
+                kind: EditKind::Option(&mut self.prounouciation),
+            }),
+            WordCursor::Translation(position) => Some(Edit {
+                position,
+                kind: EditKind::Option(&mut self.translation),
+            }),
+            WordCursor::Punctuation(position) => Some(Edit {
+                position,
+                kind: EditKind::Punctuation(&mut self.punctuation),
+            }),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -117,6 +141,7 @@ enum EditKind<'a> {
     String(&'a mut String),
     Char(&'a mut char),
     Option(&'a mut Option<String>),
+    Punctuation(&'a mut Option<Punctuation>),
 }
 
 pub trait Get {
