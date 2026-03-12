@@ -148,10 +148,9 @@ pub trait Get {
     type Cursor;
     fn get_mut(&mut self, cursor: Self::Cursor) -> Option<Edit<'_>>;
 }
-pub trait Next {
-    type Cursor;
+pub trait Next: CursorAble {
     // TODO: maybe all get the Edit at the new position
-    fn next(&mut self, cursor: Self::Cursor) -> Option<Self::Cursor>;
+    fn next(&self, cursor: Self::Cursor) -> Option<Self::Cursor>;
 }
 impl<T: Get> Get for Heading<T> {
     type Cursor = HeadingCursor<T::Cursor>;
@@ -171,28 +170,98 @@ impl<T: Get> Get for Heading<T> {
         }
     }
 }
-impl<T: Next> Next for Heading<T>
-where
-    T::Cursor: Default,
-{
+
+impl<T: CursorAble> CursorAble for Heading<T> {
     type Cursor = HeadingCursor<T::Cursor>;
-    fn next(&mut self, cursor: Self::Cursor) -> Option<Self::Cursor> {
+}
+
+impl<T: DefaultCursor> DefaultCursor for Heading<T> {
+    fn cursor(&self) -> Self::Cursor {
+        self.0
+            .as_ref()
+            .map_or(todo!(), |_| HeadingCursor::Heading(0))
+    }
+}
+
+impl<IC, T: Next + DefaultCursor<Cursor = IC>> Next for Heading<T> {
+    fn next(&self, cursor: Self::Cursor) -> Option<Self::Cursor> {
         match cursor {
             HeadingCursor::Heading(position)
-                if self.0.is_some_and(|header| header.len() < position) =>
+                if self
+                    .0
+                    .as_ref()
+                    .is_some_and(|header| header.len() < position) =>
             {
                 Some(HeadingCursor::Heading(position + 1))
             }
 
+            // TODO: add parameter to say that to create if needed
             HeadingCursor::Heading(position) if self.1.is_empty() => None,
-            HeadingCursor::Heading(position) => Some(HeadingCursor::Inner(0, T::Cursor::default())),
+            HeadingCursor::Heading(_) => Some(HeadingCursor::Inner(0, self.1[0].cursor())),
             HeadingCursor::Inner(positon, cursor) => self
                 .1
-                // TODO: maybe add some sort of Cursor trait
-                // and then don't limit `Heading` contents to being a vec (and then we could have
-                // HeadedSection)
-                .get_mut(positon)
-                .and_then(|chapter| chapter.next(cursor)),
+                .get(positon)
+                .and_then(|chapter| chapter.next(cursor))
+                .map(|cursor| HeadingCursor::Inner(positon, cursor))
+                .or_else(|| {
+                    if positon + 1 < self.1.len() {
+                        Some(HeadingCursor::Inner(
+                            positon + 1,
+                            self.1[positon + 1].cursor(),
+                        ))
+                    } else {
+                        None
+                    }
+                }),
         }
+    }
+}
+impl CursorAble for Word {
+    type Cursor = WordCursor;
+}
+impl Next for Word {
+    fn next(&self, cursor: Self::Cursor) -> Option<WordCursor> {
+        match cursor {
+            WordCursor::Word(_position) => todo!(),
+            WordCursor::Prounouciation(_position) => todo!(),
+            WordCursor::Translation(_position) => todo!(),
+            WordCursor::Punctuation(_position) => todo!(),
+        }
+    }
+}
+
+impl CursorAble for Section {
+    type Cursor = SectionCursor;
+}
+impl Next for Section {
+    fn next(&self, chapter_cursor: SectionCursor) -> Option<SectionCursor> {
+        match (self, chapter_cursor) {
+            (Section::Word(_word), SectionCursor::Word(_word_cursor)) => todo!(), // word.next(word_cursor)
+            (
+                Section::Parenthesis(_parenthesis, _sections),
+                SectionCursor::Parenthesis(parenthesis_cursor),
+            ) => match parenthesis_cursor {
+                ParenthesisCursor::Char => todo!(),
+                ParenthesisCursor::Section(_cursor, _section_cursor) => todo!(),
+            },
+            (Section::Sentence(_sentence), SectionCursor::Sentence(_sentence_cursor)) => {
+                todo!() // sentence.get_mut(sentence_cursor)
+            }
+            (Section::Points(_hash_map), SectionCursor::Points(_point_cursor)) => todo!(),
+            _ => None,
+        }
+    }
+}
+
+pub trait CursorAble {
+    type Cursor;
+}
+pub trait DefaultCursor: CursorAble {
+    fn cursor(&self) -> Self::Cursor;
+}
+
+impl DefaultCursor for Section {
+    fn cursor(&self) -> Self::Cursor {
+        todo!()
     }
 }

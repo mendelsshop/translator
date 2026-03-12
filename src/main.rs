@@ -14,7 +14,7 @@ use ratatui::{
 };
 use ratatui_textarea::TextArea;
 
-use crate::structure::{Cursor, Get};
+use crate::structure::{Cursor, Get, Next};
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -139,6 +139,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
                 } = &mut app.kind
                 {
                     current.get_mut(postion.clone());
+                    current.next(postion.clone());
                     *translation_state = TranslationState::Normal
                 }
             }
