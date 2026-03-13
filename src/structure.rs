@@ -179,7 +179,10 @@ impl<T: DefaultCursor> DefaultCursor for Heading<T> {
     fn cursor(&self) -> Self::Cursor {
         self.0
             .as_ref()
-            .map_or(todo!(), |_| HeadingCursor::Heading(0))
+            // TODO: assumes > 1 content maybe make this optional
+            .map_or(HeadingCursor::Inner(0, self.1[0].cursor()), |_| {
+                HeadingCursor::Heading(0)
+            })
     }
 }
 
@@ -262,6 +265,19 @@ pub trait DefaultCursor: CursorAble {
 
 impl DefaultCursor for Section {
     fn cursor(&self) -> Self::Cursor {
-        todo!()
+        match self {
+            Section::Word(_) => SectionCursor::Word(WordCursor::Word(0)),
+            Section::Parenthesis(_, _) => SectionCursor::Parenthesis(ParenthesisCursor::Char),
+            Section::Sentence(heading) => SectionCursor::Sentence(heading.cursor()),
+            // TODO: assumes > 1 points
+            Section::Points(hash_map) => {
+                SectionCursor::Points(PointCursor(0, Box::new(hash_map[&0].cursor())))
+            }
+        }
+    }
+}
+impl DefaultCursor for Word {
+    fn cursor(&self) -> Self::Cursor {
+        WordCursor::Word(0)
     }
 }
