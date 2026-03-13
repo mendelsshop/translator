@@ -225,7 +225,13 @@ impl CursorAble for Word {
 impl Next for Word {
     fn next(&self, cursor: Self::Cursor) -> Option<WordCursor> {
         match cursor {
-            WordCursor::Word(_position) => todo!(),
+            WordCursor::Word(_position) => {
+                if _position < self.word.len() {
+                    Some(WordCursor::Word(_position + 1))
+                } else {
+                    todo!()
+                }
+            }
             WordCursor::Prounouciation(_position) => todo!(),
             WordCursor::Translation(_position) => todo!(),
             WordCursor::Punctuation(_position) => todo!(),
@@ -239,7 +245,9 @@ impl CursorAble for Section {
 impl Next for Section {
     fn next(&self, chapter_cursor: SectionCursor) -> Option<SectionCursor> {
         match (self, chapter_cursor) {
-            (Section::Word(_word), SectionCursor::Word(_word_cursor)) => todo!(), // word.next(word_cursor)
+            (Section::Word(_word), SectionCursor::Word(_word_cursor)) => {
+                _word.next(_word_cursor).map(SectionCursor::Word)
+            }
             (
                 Section::Parenthesis(_parenthesis, _sections),
                 SectionCursor::Parenthesis(parenthesis_cursor),
@@ -250,7 +258,14 @@ impl Next for Section {
             (Section::Sentence(_sentence), SectionCursor::Sentence(_sentence_cursor)) => {
                 todo!() // sentence.get_mut(sentence_cursor)
             }
-            (Section::Points(_hash_map), SectionCursor::Points(_point_cursor)) => todo!(),
+            (Section::Points(_hash_map), SectionCursor::Points(_point_cursor)) => _hash_map
+                .get(&_point_cursor.0)
+                .and_then(|section| section.next(*_point_cursor.1))
+                .or_else(|| {
+                    _hash_map
+                        .get(&_point_cursor.0)
+                        .map(|section| section.cursor())
+                }),
             _ => None,
         }
     }
