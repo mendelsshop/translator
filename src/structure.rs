@@ -153,11 +153,16 @@ pub trait Get {
     type Cursor;
     fn get_mut(&mut self, cursor: Self::Cursor) -> Option<Edit<'_>>;
 }
+#[derive(Debug, Clone, Copy)]
 pub enum NextElement {
-    Prounouciation,
-    Translation,
-    Punctuation,
-    Parenthesis,
+    // Jump around in editing word
+    ToProunouciation,
+    ToTranslation,
+    ToPunctuation,
+    ToWord,
+    // Jump around edition parenthesis
+    ToParenthesis,
+    ToParenthesisContents,
     // Paragraph,
     // Chapter,
     // Sentence,
@@ -167,7 +172,7 @@ pub enum NextElement {
 }
 pub trait Next: CursorAble {
     // TODO: maybe all get the Edit at the new position
-    fn next(&self, cursor: Self::Cursor, next: NextElement) -> Option<Self::Cursor>;
+    fn next(&mut self, cursor: Self::Cursor, next: NextElement) -> Option<Self::Cursor>;
 }
 impl<T: Get> Get for Heading<T> {
     type Cursor = HeadingCursor<T::Cursor>;
@@ -204,7 +209,7 @@ impl<T: DefaultCursor> DefaultCursor for Heading<T> {
 }
 
 impl<IC, T: Next + DefaultCursor<Cursor = IC>> Next for Heading<T> {
-    fn next(&self, cursor: Self::Cursor, next: NextElement) -> Option<Self::Cursor> {
+    fn next(&mut self, cursor: Self::Cursor, next: NextElement) -> Option<Self::Cursor> {
         match cursor {
             HeadingCursor::Heading(position)
                 if self
@@ -220,7 +225,7 @@ impl<IC, T: Next + DefaultCursor<Cursor = IC>> Next for Heading<T> {
             HeadingCursor::Heading(_) => Some(HeadingCursor::Inner(0, self.1[0].cursor())),
             HeadingCursor::Inner(positon, cursor) => self
                 .1
-                .get(positon)
+                .get_mut(positon)
                 .and_then(|chapter| chapter.next(cursor, next))
                 .map(|cursor| HeadingCursor::Inner(positon, cursor))
                 .or_else(|| {
@@ -240,12 +245,11 @@ impl CursorAble for Word {
     type Cursor = WordCursor;
 }
 impl Next for Word {
-    fn next(&self, cursor: Self::Cursor, _next: NextElement) -> Option<WordCursor> {
+    fn next(&mut self, cursor: Self::Cursor, _next: NextElement) -> Option<WordCursor> {
         match cursor {
             WordCursor::Word(_position) if _position < self.word.len() => {
                 Some(WordCursor::Word(_position + 1))
             }
-            WordCursor::Word(_position) => todo!(),
             WordCursor::Prounouciation(_position)
                 if self
                     .prounouciation
@@ -255,8 +259,6 @@ impl Next for Word {
                 Some(WordCursor::Prounouciation(_position + 1))
             }
 
-            WordCursor::Prounouciation(_position) => todo!(),
-
             WordCursor::Translation(_position)
                 if self
                     .translation
@@ -265,7 +267,6 @@ impl Next for Word {
             {
                 Some(WordCursor::Translation(_position + 1))
             }
-            WordCursor::Translation(_position) => todo!(),
             WordCursor::Punctuation(_position)
                 if self
                     .punctuation
@@ -274,7 +275,27 @@ impl Next for Word {
             {
                 Some(WordCursor::Punctuation(_position + 1))
             }
-            WordCursor::Punctuation(_position) => todo!(),
+            WordCursor::Translation(_position)
+            | WordCursor::Word(_position)
+            | WordCursor::Prounouciation(_position)
+            | WordCursor::Punctuation(_position) => match _next {
+                NextElement::ToProunouciation => {
+                    self.prounouciation = Some(String::new());
+                    Some(WordCursor::Prounouciation(0))
+                }
+                NextElement::ToTranslation => {
+                    self.translation = Some(String::new());
+                    Some(WordCursor::Translation(0))
+                }
+                NextElement::ToPunctuation => {
+                    self.punctuation = Some(todo!());
+                    Some(WordCursor::Punctuation(0))
+                }
+                NextElement::ToWord => Some(WordCursor::Word(0)),
+                NextElement::ToParenthesis => None,
+                NextElement::ToParenthesisContents => None,
+                NextElement::None => None,
+            },
         }
     }
 }
@@ -283,7 +304,7 @@ impl CursorAble for Section {
     type Cursor = SectionCursor;
 }
 impl Next for Section {
-    fn next(&self, chapter_cursor: SectionCursor, next: NextElement) -> Option<SectionCursor> {
+    fn next(&mut self, chapter_cursor: SectionCursor, next: NextElement) -> Option<SectionCursor> {
         match (self, chapter_cursor) {
             (Section::Word(_word), SectionCursor::Word(_word_cursor)) => {
                 _word.next(_word_cursor, next).map(SectionCursor::Word)
@@ -292,14 +313,47 @@ impl Next for Section {
                 Section::Parenthesis(_parenthesis, _sections),
                 SectionCursor::Parenthesis(parenthesis_cursor),
             ) => match parenthesis_cursor {
-                ParenthesisCursor::Char => todo!(),
-                ParenthesisCursor::Section(_cursor, _section_cursor) => todo!(),
+                ParenthesisCursor::Char => match next {
+                    NextElement::ToParenthesis => {
+                        Some(SectionCursor::Parenthesis(ParenthesisCursor::Char))
+                    }
+                    NextElement::ToParenthesisContents => _sections.first()
+                        .map(|section| section.cursor())
+                        .map(|cursor| {
+                            SectionCursor::Parenthesis(ParenthesisCursor::Section(
+                                0,
+                                Box::new(cursor),
+                            ))
+                        }),
+
+                    NextElement::ToProunouciation
+                    | NextElement::ToTranslation
+                    | NextElement::ToPunctuation
+                    | NextElement::ToWord
+                    | NextElement::None => None,
+                },
+                ParenthesisCursor::Section(_cursor, _section_cursor) => _sections
+                    .get_mut(_cursor)
+                    .and_then(|section| section.next(*_section_cursor, next))
+                    .or_else(|| _sections.get(_cursor + 1).map(|section| section.cursor()))
+                    .or(match next {
+                        NextElement::ToParenthesis => {
+                            Some(SectionCursor::Parenthesis(ParenthesisCursor::Char))
+                        }
+
+                        NextElement::ToParenthesisContents
+                        | NextElement::ToProunouciation
+                        | NextElement::ToTranslation
+                        | NextElement::ToPunctuation
+                        | NextElement::ToWord
+                        | NextElement::None => None,
+                    }),
             },
             (Section::Sentence(_sentence), SectionCursor::Sentence(_sentence_cursor)) => _sentence
                 .next(_sentence_cursor, next)
                 .map(SectionCursor::Sentence),
             (Section::Points(_hash_map), SectionCursor::Points(_point_cursor)) => _hash_map
-                .get(&_point_cursor.0)
+                .get_mut(&_point_cursor.0)
                 .and_then(|section| section.next(*_point_cursor.1, next))
                 .or_else(|| {
                     _hash_map
