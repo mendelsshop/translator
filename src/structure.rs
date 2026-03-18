@@ -317,7 +317,8 @@ impl Next for Section {
                     NextElement::ToParenthesis => {
                         Some(SectionCursor::Parenthesis(ParenthesisCursor::Char))
                     }
-                    NextElement::ToParenthesisContents => _sections.first()
+                    NextElement::ToParenthesisContents => _sections
+                        .first()
                         .map(|section| section.cursor())
                         .map(|cursor| {
                             SectionCursor::Parenthesis(ParenthesisCursor::Section(

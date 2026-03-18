@@ -2,6 +2,7 @@ mod converter;
 
 mod structure;
 use core::fmt;
+use std::fs::read_to_string;
 
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent};
@@ -10,11 +11,15 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, FrameExt, Paragraph},
 };
+use ratatui_explorer::{FileExplorer, FileExplorerBuilder};
 use ratatui_textarea::TextArea;
 
-use crate::structure::{Cursor, Get, Next, NextElement};
+use crate::{
+    converter::parse,
+    structure::{Cursor, Get, Next, NextElement},
+};
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -118,8 +123,11 @@ fn draw_status<'a>(status: &Status) -> Paragraph<'a> {
 }
 fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
     let mut app = app;
+
+    let theme = ratatui_explorer::Theme::default().add_default_title();
+    let mut file_explorer = FileExplorerBuilder::build_with_theme(theme).unwrap();
     loop {
-        terminal.draw(render(&app))?;
+        terminal.draw(render(&app, &file_explorer))?;
         let event = event::read()?;
         match event {
             Event::Key(KeyEvent {
@@ -146,12 +154,30 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
             _ if app.in_editing_mode() => {
                 app.input_buffer.input(event);
             }
-            _ => {}
+            _ => {
+                file_explorer.handle(&event)?;
+                if let Event::Key(KeyEvent {
+                    code: KeyCode::Enter,
+                    ..
+                }) = event
+                    && !file_explorer.current().is_dir
+                {
+                    let file = read_to_string(file_explorer.current().path.clone()).unwrap();
+                    app.kind = AppStateKind::Translating {
+                        postion: Cursor::default(),
+                        current: parse(&file),
+                        translation_state: TranslationState::Normal,
+                    }
+                }
+            }
         }
     }
 }
 
-fn render(app: &AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
+fn render(
+    app: &AppState<'_>,
+    file_explorer: &FileExplorer,
+) -> impl FnOnce(&mut ratatui::Frame<'_>) {
     |frame: &mut Frame| {
         let _size = frame.area();
         frame.render_widget(draw_main(), frame.area());
@@ -165,18 +191,20 @@ fn render(app: &AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
             ])
             .margin(1)
             .split(frame.area());
-        let body = match &app.kind {
+        match &app.kind {
             AppStateKind::Translating {
                 current,
                 translation_state: _,
                 postion: _,
-            } => &current.to_string(),
-            AppStateKind::New => "Please load or create a new translation",
+            } => frame.render_widget(
+                Paragraph::new(current.to_string()),
+                *layout.get(1).expect("could not get area to draw"),
+            ),
+            AppStateKind::New => frame.render_widget_ref(
+                file_explorer.widget(),
+                *layout.get(1).expect("could not get area to draw"),
+            ),
         };
-        frame.render_widget(
-            Paragraph::new(body),
-            *layout.get(1).expect("could not get area to draw"),
-        );
         frame.render_widget(
             &app.input_buffer,
             *layout.get(2).expect("could not get area to draw"),
