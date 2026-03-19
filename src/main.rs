@@ -127,7 +127,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
     let theme = ratatui_explorer::Theme::default().add_default_title();
     let mut file_explorer = FileExplorerBuilder::build_with_theme(theme).unwrap();
     loop {
-        terminal.draw(render(&app, &file_explorer))?;
+        terminal.draw(render(&mut app, &file_explorer))?;
         let event = event::read()?;
         match event {
             Event::Key(KeyEvent {
@@ -135,6 +135,21 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
                 ..
             }) if app.in_normal_mode() => {
                 break Ok(());
+            }
+            Event::Key(KeyEvent {
+                code: KeyCode::Char('l'),
+                ..
+            }) => {
+                if let AppStateKind::Translating {
+                    translation_state: TranslationState::Normal,
+                    postion,
+                    current,
+                } = &mut app.kind
+                {
+                    *postion = current
+                        .next(postion.clone(), NextElement::None)
+                        .unwrap_or(postion.clone());
+                }
             }
             Event::Key(KeyEvent {
                 code: KeyCode::Esc, ..
@@ -175,7 +190,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
 }
 
 fn render(
-    app: &AppState<'_>,
+    app: &mut AppState<'_>,
     file_explorer: &FileExplorer,
 ) -> impl FnOnce(&mut ratatui::Frame<'_>) {
     |frame: &mut Frame| {
@@ -191,15 +206,18 @@ fn render(
             ])
             .margin(1)
             .split(frame.area());
-        match &app.kind {
+        match &mut app.kind {
             AppStateKind::Translating {
                 current,
                 translation_state: _,
-                postion: _,
-            } => frame.render_widget(
-                Paragraph::new(current.to_string()),
-                *layout.get(1).expect("could not get area to draw"),
-            ),
+                postion,
+            } => {
+                let cursor = current.get_mut(postion.clone());
+                frame.render_widget(
+                    Paragraph::new(format!("{:?}", cursor.unwrap())),
+                    *layout.get(1).expect("could not get area to draw"),
+                )
+            }
             AppStateKind::New => frame.render_widget_ref(
                 file_explorer.widget(),
                 *layout.get(1).expect("could not get area to draw"),
