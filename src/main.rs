@@ -16,10 +16,7 @@ use ratatui::{
 use ratatui_explorer::{FileExplorer, FileExplorerBuilder};
 use ratatui_textarea::TextArea;
 
-use crate::{
-    converter::parse,
-    structure::{Cursor, Get, Next, NextElement},
-};
+use crate::converter::parse;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -71,7 +68,8 @@ pub enum TranslationState {
 #[derive(Debug, Clone, Default)]
 pub enum AppStateKind {
     Translating {
-        postion: Cursor,
+        postion: usize,
+        sub_postion: usize,
         current: structure::Text,
         translation_state: TranslationState,
     },
@@ -143,12 +141,42 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
                 if let AppStateKind::Translating {
                     translation_state: TranslationState::Normal,
                     postion,
+                    sub_postion: _,
+                    current: _,
+                } = &mut app.kind
+                {
+                    *postion += 1;
+                }
+            }
+            Event::Key(KeyEvent {
+                code: KeyCode::Char('h'),
+                ..
+            }) => {
+                if let AppStateKind::Translating {
+                    translation_state: TranslationState::Normal,
+                    postion,
+                    sub_postion: _,
+                    current: _,
+                } = &mut app.kind
+                {
+                    *postion -= 1;
+                }
+            }
+            Event::Key(KeyEvent {
+                code: KeyCode::Char('d'),
+                ..
+            }) => {
+                if let AppStateKind::Translating {
+                    translation_state: TranslationState::Normal,
+                    postion,
+                    sub_postion: _,
                     current,
                 } = &mut app.kind
                 {
-                    *postion = current
-                        .next(postion.clone(), NextElement::None)
-                        .unwrap_or(postion.clone());
+                    current.description.insert(
+                        *postion,
+                        "description".to_string() + postion.to_string().as_str(),
+                    );
                 }
             }
             Event::Key(KeyEvent {
@@ -156,13 +184,11 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
             }) => {
                 if let AppStateKind::Translating {
                     translation_state: translation_state @ TranslationState::Editing,
-                    postion,
-                    current,
+                    postion: _,
+                    current: _,
                     ..
                 } = &mut app.kind
                 {
-                    current.get_mut(postion.clone());
-                    current.next(postion.clone(), NextElement::None);
                     *translation_state = TranslationState::Normal
                 }
             }
@@ -179,7 +205,8 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
                 {
                     let file = read_to_string(file_explorer.current().path.clone()).unwrap();
                     app.kind = AppStateKind::Translating {
-                        postion: Cursor::default(),
+                        sub_postion: 0,
+                        postion: 0,
                         current: parse(&file),
                         translation_state: TranslationState::Normal,
                     }
@@ -210,14 +237,12 @@ fn render(
             AppStateKind::Translating {
                 current,
                 translation_state: _,
-                postion,
-            } => {
-                let cursor = current.get_mut(postion.clone());
-                frame.render_widget(
-                    Paragraph::new(format!("{:?}", cursor.unwrap())),
-                    *layout.get(1).expect("could not get area to draw"),
-                )
-            }
+                sub_postion: _,
+                postion: _,
+            } => frame.render_widget(
+                Paragraph::new(format!("{}", current)),
+                *layout.get(1).expect("could not get area to draw"),
+            ),
             AppStateKind::New => frame.render_widget_ref(
                 file_explorer.widget(),
                 *layout.get(1).expect("could not get area to draw"),

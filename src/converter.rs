@@ -1,27 +1,14 @@
-use crate::structure::{self, Heading, Section, Word};
+use std::collections::HashMap;
+
+use rangemap::RangeMap;
+
+use crate::structure::{self};
 
 pub fn parse(s: &str) -> structure::Text {
-    Heading(
-        None,
-        vec![Heading(
-            None,
-            vec![
-                (Heading(
-                    None,
-                    // TODO: split white space removes white space but we eventually want to
-                    // differentiate betweeen paragraphs
-                    s.split_whitespace()
-                        .map(|t| {
-                            Section::Word(Word {
-                                word: t.to_string(),
-                                prounouciation: None,
-                                translation: None,
-                                punctuation: None,
-                            })
-                        })
-                        .collect(),
-                )),
-            ],
-        )],
-    )
+    structure::Text {
+        text: s.to_string(),
+        words: RangeMap::new(),
+        sentence_translation: HashMap::new(),
+        description: HashMap::new(),
+    }
 }
