@@ -1,15 +1,17 @@
 mod converter;
 
 mod structure;
+
 use core::fmt;
 use std::fs::read_to_string;
 
-use color_eyre::Result;
+use ansi_to_tui::IntoText;
+use color_eyre::{Result, owo_colors::OwoColorize};
 use crossterm::event::{self, Event, KeyCode, KeyEvent};
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, FrameExt, Paragraph},
 };
@@ -24,11 +26,11 @@ fn main() -> Result<()> {
     let app = AppState {
         input_buffer: {
             let mut area = TextArea::default();
-            area.set_cursor_line_style(
-                area.cursor_line_style()
-                    .remove_modifier(Modifier::UNDERLINED),
-            );
-            area.set_cursor_style(area.cursor_style().remove_modifier(Modifier::REVERSED));
+            // area.set_cursor_line_style(
+            //     area.cursor_line_style()
+            //         .remove_modifier(Modifier::UNDERLINED),
+            // );
+            // area.set_cursor_style(area.cursor_style().remove_modifier(Modifier::REVERSED));
             area.set_block(Block::default().borders(Borders::TOP));
             area
         },
@@ -142,9 +144,14 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
                     translation_state: TranslationState::Normal,
                     postion,
                     sub_postion: _,
-                    current: _,
+                    current,
                 } = &mut app.kind
                 {
+                    current.text.replace_range(*postion..(*postion + 7), "");
+                    current.text.replace_range(*postion + 1..(*postion + 5), "");
+                    current.text.insert_str(*postion + 2, "\x1b[0m");
+                    current.text.insert_str(*postion + 1, "\x1b[47;5m");
+
                     *postion += 1;
                 }
             }
@@ -156,9 +163,14 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
                     translation_state: TranslationState::Normal,
                     postion,
                     sub_postion: _,
-                    current: _,
+                    current,
                 } = &mut app.kind
+                    && *postion > 0
                 {
+                    current.text.replace_range(*postion..(*postion + 7), "");
+                    current.text.replace_range(*postion + 1..(*postion + 5), "");
+                    current.text.insert_str(*postion, "\x1b[0m");
+                    current.text.insert_str(*postion - 1, "\x1b[47;5m");
                     *postion -= 1;
                 }
             }
@@ -204,12 +216,17 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
                     && !file_explorer.current().is_dir
                 {
                     let file = read_to_string(file_explorer.current().path.clone()).unwrap();
+
+                    let mut current = parse(&file);
+                    current.text.insert_str(1, "\x1b[0m");
+                    // println!("{}", current.text.escape_default());
+                    current.text.insert_str(0, "\x1b[47;5m");
                     app.kind = AppStateKind::Translating {
                         sub_postion: 0,
                         postion: 0,
-                        current: parse(&file),
+                        current,
                         translation_state: TranslationState::Normal,
-                    }
+                    };
                 }
             }
         }
@@ -240,7 +257,7 @@ fn render(
                 sub_postion: _,
                 postion: _,
             } => frame.render_widget(
-                Paragraph::new(format!("{}", current)),
+                Paragraph::new(current.text.to_text().unwrap()),
                 *layout.get(1).expect("could not get area to draw"),
             ),
             AppStateKind::New => frame.render_widget_ref(
