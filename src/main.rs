@@ -295,12 +295,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
     }
 }
 
-fn update_line_position(postion: &mut (usize, usize), current: &mut structure::Text) {
-    postion.1 = current
-        .text
-        .get(postion.0)
-        .map_or(0, |text| (text.len().saturating_sub(1)).min(postion.1));
-}
+const fn update_line_position(_postion: &mut (usize, usize), _current: &mut structure::Text) {}
 
 fn render(
     app: &mut AppState<'_>,
@@ -336,8 +331,13 @@ fn render(
                             if text.is_empty() {
                                 text.push(' ');
                             }
-                            text.insert_str(postion.1 + 1, "\x1b[0m");
-                            text.insert_str(postion.1, "\x1b[47;5m");
+                            let column = current
+                                .text
+                                .get(postion.0)
+                                .map_or(0, |text| (text.len().saturating_sub(1)).min(postion.1));
+
+                            text.insert_str(column + 1, "\x1b[0m");
+                            text.insert_str(column, "\x1b[47;5m");
                         }
                         text
                     })
