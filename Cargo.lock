@@ -1597,6 +1597,7 @@ dependencies = [
  "ansi-to-tui",
  "color-eyre",
  "crossterm",
+ "itertools",
  "rangemap",
  "ratatui",
  "ratatui-explorer",

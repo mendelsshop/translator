@@ -1,9 +1,10 @@
+use itertools::Itertools;
 mod converter;
 
 mod structure;
 
 use core::fmt;
-use std::fs::read_to_string;
+use std::{fs::read_to_string, time::Duration};
 
 use ansi_to_tui::IntoText;
 use color_eyre::{Result, owo_colors::OwoColorize};
@@ -70,7 +71,7 @@ pub enum TranslationState {
 #[derive(Debug, Clone, Default)]
 pub enum AppStateKind {
     Translating {
-        postion: usize,
+        postion: (usize, usize),
         sub_postion: usize,
         current: structure::Text,
         translation_state: TranslationState,
@@ -129,104 +130,112 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
     loop {
         terminal.draw(render(&mut app, &file_explorer))?;
         let event = event::read()?;
-        match event {
-            Event::Key(KeyEvent {
-                code: KeyCode::Char('q'),
-                ..
-            }) if app.in_normal_mode() => {
-                break Ok(());
-            }
-            Event::Key(KeyEvent {
-                code: KeyCode::Char('l'),
-                ..
-            }) => {
-                if let AppStateKind::Translating {
-                    translation_state: TranslationState::Normal,
-                    postion,
-                    sub_postion: _,
-                    current,
-                } = &mut app.kind
-                {
-                    current.text.replace_range(*postion..(*postion + 7), "");
-                    current.text.replace_range(*postion + 1..(*postion + 5), "");
-                    current.text.insert_str(*postion + 2, "\x1b[0m");
-                    current.text.insert_str(*postion + 1, "\x1b[47;5m");
-
-                    *postion += 1;
-                }
-            }
-            Event::Key(KeyEvent {
-                code: KeyCode::Char('h'),
-                ..
-            }) => {
-                if let AppStateKind::Translating {
-                    translation_state: TranslationState::Normal,
-                    postion,
-                    sub_postion: _,
-                    current,
-                } = &mut app.kind
-                    && *postion > 0
-                {
-                    current.text.replace_range(*postion..(*postion + 7), "");
-                    current.text.replace_range(*postion + 1..(*postion + 5), "");
-                    current.text.insert_str(*postion, "\x1b[0m");
-                    current.text.insert_str(*postion - 1, "\x1b[47;5m");
-                    *postion -= 1;
-                }
-            }
-            Event::Key(KeyEvent {
-                code: KeyCode::Char('d'),
-                ..
-            }) => {
-                if let AppStateKind::Translating {
-                    translation_state: TranslationState::Normal,
-                    postion,
-                    sub_postion: _,
-                    current,
-                } = &mut app.kind
-                {
-                    current.description.insert(
-                        *postion,
-                        "description".to_string() + postion.to_string().as_str(),
-                    );
-                }
-            }
-            Event::Key(KeyEvent {
-                code: KeyCode::Esc, ..
-            }) => {
-                if let AppStateKind::Translating {
-                    translation_state: translation_state @ TranslationState::Editing,
-                    postion: _,
-                    current: _,
+        if event::poll(Duration::from_millis(500)).unwrap() {
+            match event {
+                Event::Key(KeyEvent {
+                    code: KeyCode::Char('q'),
                     ..
-                } = &mut app.kind
-                {
-                    *translation_state = TranslationState::Normal
+                }) if app.in_normal_mode() => {
+                    break Ok(());
                 }
-            }
-            _ if app.in_editing_mode() => {
-                app.input_buffer.input(event);
-            }
-            _ => {
-                file_explorer.handle(&event)?;
-                if let Event::Key(KeyEvent {
-                    code: KeyCode::Enter,
+                Event::Key(KeyEvent {
+                    code: KeyCode::Char('l'),
                     ..
-                }) = event
-                    && !file_explorer.current().is_dir
-                {
-                    let file = read_to_string(file_explorer.current().path.clone()).unwrap();
-
-                    let mut current = parse(&file);
-                    current.text.insert_str(1, "\x1b[0m");
-                    // println!("{}", current.text.escape_default());
-                    current.text.insert_str(0, "\x1b[47;5m");
-                    app.kind = AppStateKind::Translating {
-                        sub_postion: 0,
-                        postion: 0,
-                        current,
+                }) => {
+                    if let AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                    };
+                        postion,
+                        sub_postion: _,
+                        current,
+                    } = &mut app.kind
+                    {
+                        // current.text.replace_range(*postion..(*postion + 7), "");
+                        // current.text.replace_range(*postion + 1..(*postion + 5), "");
+                        // current.text.insert_str(*postion + 2, "\x1b[0m");
+                        // current.text.insert_str(*postion + 1, "\x1b[47;5m");
+
+                        if current
+                            .text
+                            .get(postion.0)
+                            .is_some_and(|t| postion.1 <= t.len())
+                        {
+                            postion.1 += 1;
+                        }
+                    }
+                }
+                Event::Key(KeyEvent {
+                    code: KeyCode::Char('h'),
+                    ..
+                }) => {
+                    if let AppStateKind::Translating {
+                        translation_state: TranslationState::Normal,
+                        postion,
+                        sub_postion: _,
+                        current: _,
+                    } = &mut app.kind
+                    {
+                        // current.text.replace_range(*postion..(*postion + 7), "");
+                        // current.text.replace_range(*postion + 1..(*postion + 5), "");
+                        // current.text.insert_str(*postion, "\x1b[0m");
+                        // current.text.insert_str(*postion - 1, "\x1b[47;5m");
+                        if postion.1 > 0 {
+                            postion.1 -= 1;
+                        }
+                    }
+                }
+                Event::Key(KeyEvent {
+                    code: KeyCode::Char('d'),
+                    ..
+                }) => {
+                    if let AppStateKind::Translating {
+                        translation_state: TranslationState::Normal,
+                        postion,
+                        sub_postion: _,
+                        current,
+                    } = &mut app.kind
+                    {
+                        current
+                            .description
+                            .insert(*postion, format!("description{:?}", postion));
+                    }
+                }
+                Event::Key(KeyEvent {
+                    code: KeyCode::Esc, ..
+                }) => {
+                    if let AppStateKind::Translating {
+                        translation_state: translation_state @ TranslationState::Editing,
+                        postion: _,
+                        current: _,
+                        ..
+                    } = &mut app.kind
+                    {
+                        *translation_state = TranslationState::Normal
+                    }
+                }
+                _ if app.in_editing_mode() => {
+                    app.input_buffer.input(event);
+                }
+                _ => {
+                    file_explorer.handle(&event)?;
+                    if let Event::Key(KeyEvent {
+                        code: KeyCode::Enter,
+                        ..
+                    }) = event
+                        && !file_explorer.current().is_dir
+                    {
+                        let file = read_to_string(file_explorer.current().path.clone()).unwrap();
+
+                        let current = parse(&file);
+                        // current.text.insert_str(1, "\x1b[0m");
+                        // println!("{}", current.text.escape_default());
+                        // current.text.insert_str(0, "\x1b[47;5m");
+                        app.kind = AppStateKind::Translating {
+                            sub_postion: 0,
+                            postion: (0, 0),
+                            current,
+                            translation_state: TranslationState::Normal,
+                        };
+                    }
                 }
             }
         }
@@ -255,11 +264,26 @@ fn render(
                 current,
                 translation_state: _,
                 sub_postion: _,
-                postion: _,
-            } => frame.render_widget(
-                Paragraph::new(current.text.to_text().unwrap()),
-                *layout.get(1).expect("could not get area to draw"),
-            ),
+                postion,
+            } => {
+                let text = current
+                    .text
+                    .iter()
+                    .cloned()
+                    .enumerate()
+                    .map(|(i, mut text)| {
+                        if i == postion.0 {
+                            text.insert_str(postion.1 + 1, "\x1b[0m");
+                            text.insert_str(postion.1, "\x1b[47;5m");
+                        }
+                        text
+                    })
+                    .join("\n");
+                frame.render_widget(
+                    Paragraph::new(text.to_text().unwrap()),
+                    *layout.get(1).expect("could not get area to draw"),
+                )
+            }
             AppStateKind::New => frame.render_widget_ref(
                 file_explorer.widget(),
                 *layout.get(1).expect("could not get area to draw"),
