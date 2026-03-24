@@ -26,7 +26,7 @@ use ratatui::{
 use ratatui_explorer::{FileExplorer, FileExplorerBuilder};
 use ratatui_textarea::TextArea;
 
-use crate::converter::parse;
+use crate::{converter::parse, structure::Commentary};
 
 fn main() -> Result<()> {
     simple_file_logger::init_logger("translator", simple_file_logger::LogLevel::Trace)?;
@@ -137,8 +137,9 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
     let mut file_explorer = FileExplorerBuilder::build_with_theme(theme).unwrap();
     loop {
         terminal.draw(render(&mut app, &file_explorer))?;
-        let event = event::read()?;
+        // polling slows down the input too much either don't poll or tune the polling rate
         if true || event::poll(Duration::from_millis(500)).unwrap() {
+            let event = event::read()?;
             match (event, &mut app.kind) {
                 (
                     Event::Key(KeyEvent {
@@ -167,7 +168,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     if current
                         .text
                         .get(postion.0)
-                        .is_some_and(|t| postion.1 < t.len().saturating_sub(1))
+                        .is_some_and(|line| postion.1 < line.text.len().saturating_sub(1))
                     {
                         log::trace!("l(active)");
                         postion.1 += 1;
@@ -201,14 +202,13 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         translation_state: TranslationState::Normal,
                         postion,
                         sub_postion: _,
-                        current,
+                        current: _,
                     },
                 ) => {
                     log::trace!("k");
                     if postion.0 > 0 {
                         log::trace!("k(active)");
                         postion.0 -= 1;
-                        update_line_position(postion, current);
                     }
                 }
                 (
@@ -229,9 +229,26 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         postion.0 += 1;
 
                         log::trace!("j(active)",);
-                        update_line_position(postion, current);
                     }
                 }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('D'),
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Normal,
+                        postion,
+                        sub_postion: _,
+                        current,
+                    },
+                ) => {
+                    current.text[postion.0].commentary.insert(
+                        postion.1 + 1,
+                        Commentary::DescriptionParagraph(format!("description{postion:?}")),
+                    );
+                }
+
                 (
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('d'),
@@ -244,9 +261,10 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         current,
                     },
                 ) => {
-                    current
-                        .description
-                        .insert(*postion, format!("description{postion:?}"));
+                    current.text[postion.0].commentary.insert(
+                        postion.1,
+                        Commentary::DescriptionParagraph(format!("description{postion:?}")),
+                    );
                 }
                 (
                     Event::Key(KeyEvent {
@@ -279,9 +297,6 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         let file = read_to_string(file_explorer.current().path.clone()).unwrap();
 
                         let current = parse(&file);
-                        // current.text.insert_str(1, "\x1b[0m");
-                        // println!("{}", current.text.escape_default());
-                        // current.text.insert_str(0, "\x1b[47;5m");
                         app.kind = AppStateKind::Translating {
                             sub_postion: 0,
                             postion: (0, 0),
@@ -294,8 +309,6 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
         }
     }
 }
-
-const fn update_line_position(_postion: &mut (usize, usize), _current: &mut structure::Text) {}
 
 fn render(
     app: &mut AppState<'_>,
@@ -326,20 +339,54 @@ fn render(
                     .iter()
                     .cloned()
                     .enumerate()
-                    .map(|(i, mut text)| {
+                    .map(|(i, mut line)| {
+                        // Current behaviour is to hide any commentary not current line maybe have
+                        // toggle to control
                         if i == postion.0 {
-                            if text.is_empty() {
-                                text.push(' ');
+                            if line.text.is_empty() {
+                                line.text.push(' ');
                             }
-                            let column = current
-                                .text
-                                .get(postion.0)
-                                .map_or(0, |text| (text.len().saturating_sub(1)).min(postion.1));
+                            let column = current.text.get(postion.0).map_or(0, |text| {
+                                (text.text.len().saturating_sub(1)).min(postion.1)
+                            });
 
-                            text.insert_str(column + 1, "\x1b[0m");
-                            text.insert_str(column, "\x1b[47;5m");
+                            let (text, mut plain_text, prev_i) =
+                                line.commentary.iter().sorted_by_key(|x| x.0).fold(
+                                    (String::new(), line.text, 0),
+                                    |(text, mut plain_text, prev_i), (i, commentary)| {
+                                        let processing_text = plain_text.split_off(*i - prev_i);
+                                        let column = column - prev_i;
+                                        if postion.1 < *i {
+                                            plain_text.insert_str(column + 1, "\x1b[0m");
+                                            plain_text.insert_str(column, "\x1b[47;5m");
+                                        }
+
+                                        (
+                                            format!(
+                                                "{}{}{}{}{:?}",
+                                                text,
+                                                if text.is_empty() { "" } else { "\n" },
+                                                plain_text,
+                                                if text.is_empty() && plain_text.is_empty() {
+                                                    ""
+                                                } else {
+                                                    "\n"
+                                                },
+                                                commentary,
+                                            ),
+                                            processing_text,
+                                            *i,
+                                        )
+                                    },
+                                );
+                            if postion.1 >= prev_i {
+                                let column = column - prev_i;
+                                plain_text.insert_str(column + 1, "\x1b[0m");
+                                plain_text.insert_str(column, "\x1b[47;5m");
+                            }
+                            line.text = text + &plain_text;
                         }
-                        text
+                        line.text
                     })
                     .join("\n");
                 frame.render_widget(
