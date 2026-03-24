@@ -15,7 +15,7 @@ pub struct Text {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Word {
+pub struct Word {
     pub(crate) word: String,
     pub(crate) prounouciation: Option<String>,
     pub(crate) translation: Option<String>,

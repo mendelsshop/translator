@@ -1,3 +1,10 @@
+#![warn(clippy::pedantic, clippy::nursery, clippy::cargo)]
+#![deny(
+    clippy::use_self,
+    rust_2018_idioms,
+    missing_debug_implementations,
+    clippy::missing_panics_doc
+)]
 use itertools::Itertools;
 mod converter;
 
@@ -7,7 +14,7 @@ use core::fmt;
 use std::{fs::read_to_string, time::Duration};
 
 use ansi_to_tui::IntoText;
-use color_eyre::{Result, owo_colors::OwoColorize};
+use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent};
 use ratatui::{
     DefaultTerminal, Frame,
@@ -22,6 +29,7 @@ use ratatui_textarea::TextArea;
 use crate::converter::parse;
 
 fn main() -> Result<()> {
+    simple_file_logger::init_logger("translator", simple_file_logger::LogLevel::Trace)?;
     color_eyre::install()?;
     let terminal = ratatui::init();
     let app = AppState {
@@ -49,7 +57,7 @@ pub struct AppState<'a> {
     pub input_buffer: TextArea<'a>,
 }
 impl AppState<'_> {
-    fn in_editing_mode(&self) -> bool {
+    const fn in_editing_mode(&self) -> bool {
         matches!(
             self.kind,
             AppStateKind::Translating {
@@ -58,7 +66,7 @@ impl AppState<'_> {
             }
         )
     }
-    fn in_normal_mode(&self) -> bool {
+    const fn in_normal_mode(&self) -> bool {
         !self.in_editing_mode()
     }
 }
@@ -96,19 +104,19 @@ pub enum Status {
 }
 impl Default for Status {
     fn default() -> Self {
-        Status::Ok(None)
+        Self::Ok(None)
     }
 }
 impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Status::Ok(s) => match s {
+            Self::Ok(s) => match s {
                 Some(s) => write!(f, "Ok: {s}"),
                 None => write!(f, "Ok"),
             },
-            Status::Error(s) => write!(f, "Err {s}"),
-            Status::Warning(s) => write!(f, "Warn {s}"),
-            Status::Loading => write!(f, "Loading..."),
+            Self::Error(s) => write!(f, "Err {s}"),
+            Self::Warning(s) => write!(f, "Warn {s}"),
+            Self::Loading => write!(f, "Loading..."),
         }
     }
 }
@@ -122,7 +130,7 @@ fn draw_status<'a>(status: &Status) -> Paragraph<'a> {
                 .style(Style::default().fg(Color::White)),
         )
 }
-fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
+fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
     let mut app = app;
 
     let theme = ratatui_explorer::Theme::default().add_default_title();
@@ -130,92 +138,137 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
     loop {
         terminal.draw(render(&mut app, &file_explorer))?;
         let event = event::read()?;
-        if event::poll(Duration::from_millis(500)).unwrap() {
-            match event {
-                Event::Key(KeyEvent {
-                    code: KeyCode::Char('q'),
-                    ..
-                }) if app.in_normal_mode() => {
-                    break Ok(());
+        if true || event::poll(Duration::from_millis(500)).unwrap() {
+            match (event, &mut app.kind) {
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('q'),
+                        ..
+                    }),
+                    _,
+                ) => {
+                    if app.in_normal_mode() {
+                        break Ok(());
+                    }
                 }
-                Event::Key(KeyEvent {
-                    code: KeyCode::Char('l'),
-                    ..
-                }) => {
-                    if let AppStateKind::Translating {
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('l'),
+                        ..
+                    }),
+                    AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
                         sub_postion: _,
                         current,
-                    } = &mut app.kind
+                    },
+                ) => {
+                    log::trace!("l");
+                    if current
+                        .text
+                        .get(postion.0)
+                        .is_some_and(|t| postion.1 < t.len().saturating_sub(1))
                     {
-                        // current.text.replace_range(*postion..(*postion + 7), "");
-                        // current.text.replace_range(*postion + 1..(*postion + 5), "");
-                        // current.text.insert_str(*postion + 2, "\x1b[0m");
-                        // current.text.insert_str(*postion + 1, "\x1b[47;5m");
-
-                        if current
-                            .text
-                            .get(postion.0)
-                            .is_some_and(|t| postion.1 <= t.len())
-                        {
-                            postion.1 += 1;
-                        }
+                        log::trace!("l(active)");
+                        postion.1 += 1;
                     }
                 }
-                Event::Key(KeyEvent {
-                    code: KeyCode::Char('h'),
-                    ..
-                }) => {
-                    if let AppStateKind::Translating {
+
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('h'),
+                        ..
+                    }),
+                    AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
                         sub_postion: _,
                         current: _,
-                    } = &mut app.kind
-                    {
-                        // current.text.replace_range(*postion..(*postion + 7), "");
-                        // current.text.replace_range(*postion + 1..(*postion + 5), "");
-                        // current.text.insert_str(*postion, "\x1b[0m");
-                        // current.text.insert_str(*postion - 1, "\x1b[47;5m");
-                        if postion.1 > 0 {
-                            postion.1 -= 1;
-                        }
+                    },
+                ) => {
+                    log::trace!("h");
+                    if postion.1 > 0 {
+                        log::trace!("h(active)");
+                        postion.1 -= 1;
                     }
                 }
-                Event::Key(KeyEvent {
-                    code: KeyCode::Char('d'),
-                    ..
-                }) => {
-                    if let AppStateKind::Translating {
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('k'),
+                        ..
+                    }),
+                    AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
                         sub_postion: _,
                         current,
-                    } = &mut app.kind
-                    {
-                        current
-                            .description
-                            .insert(*postion, format!("description{:?}", postion));
+                    },
+                ) => {
+                    log::trace!("k");
+                    if postion.0 > 0 {
+                        log::trace!("k(active)");
+                        postion.0 -= 1;
+                        update_line_position(postion, current);
                     }
                 }
-                Event::Key(KeyEvent {
-                    code: KeyCode::Esc, ..
-                }) => {
-                    if let AppStateKind::Translating {
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('j'),
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Normal,
+                        postion,
+                        sub_postion: _,
+                        current,
+                    },
+                ) => {
+                    log::trace!("j");
+                    // TODO: it depends on how the last line ends(CLRF...)
+                    if postion.0 < current.text.len().saturating_sub(2) {
+                        postion.0 += 1;
+
+                        log::trace!("j(active)",);
+                        update_line_position(postion, current);
+                    }
+                }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('d'),
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Normal,
+                        postion,
+                        sub_postion: _,
+                        current,
+                    },
+                ) => {
+                    current
+                        .description
+                        .insert(*postion, format!("description{postion:?}"));
+                }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Esc, ..
+                    }),
+                    AppStateKind::Translating {
                         translation_state: translation_state @ TranslationState::Editing,
                         postion: _,
                         current: _,
                         ..
-                    } = &mut app.kind
-                    {
-                        *translation_state = TranslationState::Normal
-                    }
-                }
-                _ if app.in_editing_mode() => {
+                    },
+                ) => *translation_state = TranslationState::Normal,
+                (
+                    event,
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Editing,
+                        ..
+                    },
+                ) => {
                     app.input_buffer.input(event);
                 }
-                _ => {
+                (event, _) => {
                     file_explorer.handle(&event)?;
                     if let Event::Key(KeyEvent {
                         code: KeyCode::Enter,
@@ -242,11 +295,18 @@ fn run(mut terminal: DefaultTerminal, app: AppState) -> Result<()> {
     }
 }
 
+fn update_line_position(postion: &mut (usize, usize), current: &mut structure::Text) {
+    postion.1 = current
+        .text
+        .get(postion.0)
+        .map_or(0, |text| (text.len().saturating_sub(1)).min(postion.1));
+}
+
 fn render(
     app: &mut AppState<'_>,
     file_explorer: &FileExplorer,
 ) -> impl FnOnce(&mut ratatui::Frame<'_>) {
-    |frame: &mut Frame| {
+    |frame: &mut Frame<'_>| {
         let _size = frame.area();
         frame.render_widget(draw_main(), frame.area());
         let layout = Layout::default()
@@ -273,6 +333,9 @@ fn render(
                     .enumerate()
                     .map(|(i, mut text)| {
                         if i == postion.0 {
+                            if text.is_empty() {
+                                text.push(' ');
+                            }
                             text.insert_str(postion.1 + 1, "\x1b[0m");
                             text.insert_str(postion.1, "\x1b[47;5m");
                         }
@@ -282,13 +345,13 @@ fn render(
                 frame.render_widget(
                     Paragraph::new(text.to_text().unwrap()),
                     *layout.get(1).expect("could not get area to draw"),
-                )
+                );
             }
             AppStateKind::New => frame.render_widget_ref(
                 file_explorer.widget(),
                 *layout.get(1).expect("could not get area to draw"),
             ),
-        };
+        }
         frame.render_widget(
             &app.input_buffer,
             *layout.get(2).expect("could not get area to draw"),
