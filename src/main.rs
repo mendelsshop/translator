@@ -244,10 +244,11 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     },
                 ) => {
                     log::info!("t");
-                    // TODO: make sure its not inside a word boundry
-                    current.text[postion.0]
-                        .commentary
-                        .entry(postion.1 + 1)
+                    let line = &mut current.text[postion.0];
+                    // make sure its not inside a word boundry
+                    let line_position = get_line_position(postion, line);
+                    line.commentary
+                        .entry(line_position + 1)
                         .or_insert(Commentary {
                             sentence_translation: None,
                             description_paragraph: None,
@@ -267,10 +268,11 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         current,
                     },
                 ) => {
-                    // TODO: make sure its not inside a word boundry
-                    current.text[postion.0]
-                        .commentary
-                        .entry(postion.1 + 1)
+                    let line = &mut current.text[postion.0];
+                    // make sure its not inside a word boundry
+                    let line_position = get_line_position(postion, line);
+                    line.commentary
+                        .entry(line_position + 1)
                         .or_insert(Commentary {
                             sentence_translation: None,
                             description_paragraph: None,
@@ -291,10 +293,11 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         current,
                     },
                 ) => {
-                    // TODO: make sure its not inside a word boundry
-                    current.text[postion.0]
-                        .commentary
-                        .entry(postion.1)
+                    let line = &mut current.text[postion.0];
+                    let line_position = get_line_position(postion, line);
+                    // make sure its not inside a word boundry
+                    line.commentary
+                        .entry(line_position)
                         .or_insert(Commentary {
                             sentence_translation: None,
                             description_paragraph: None,
@@ -344,6 +347,12 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
             }
         }
     }
+}
+
+fn get_line_position(postion: &(usize, usize), line: &structure::Line) -> usize {
+    line.words
+        .get_key_value(&postion.1)
+        .map_or(postion.1, |(range, _)| range.end)
 }
 
 fn render(

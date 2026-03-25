@@ -24,7 +24,7 @@ pub struct Commentary {
     pub description_paragraph: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Word {
     pub(crate) word: String,
     pub(crate) prounouciation: Option<String>,
