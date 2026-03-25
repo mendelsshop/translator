@@ -7,7 +7,6 @@ use crate::structure::{self, Line};
 pub fn parse(s: &str) -> structure::Text {
     structure::Text {
         text: s
-            .to_string()
             .split('\n')
             .map(|text| Line {
                 text: text.to_string(),

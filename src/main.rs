@@ -233,7 +233,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                 }
                 (
                     Event::Key(KeyEvent {
-                        code: KeyCode::Char('D'),
+                        code: KeyCode::Char('t'),
                         ..
                     }),
                     AppStateKind::Translating {
@@ -243,12 +243,18 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         current,
                     },
                 ) => {
-                    current.text[postion.0].commentary.insert(
-                        postion.1 + 1,
-                        Commentary::DescriptionParagraph(format!("description{postion:?}")),
-                    );
+                    log::info!("t");
+                    // TODO: make sure its not inside a word boundry
+                    current.text[postion.0]
+                        .commentary
+                        .entry(postion.1 + 1)
+                        .or_insert(Commentary {
+                            sentence_translation: None,
+                            description_paragraph: None,
+                        })
+                        .sentence_translation
+                        .get_or_insert_with(|| format!("translation{postion:?}"));
                 }
-
                 (
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('d'),
@@ -261,10 +267,40 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         current,
                     },
                 ) => {
-                    current.text[postion.0].commentary.insert(
-                        postion.1,
-                        Commentary::DescriptionParagraph(format!("description{postion:?}")),
-                    );
+                    // TODO: make sure its not inside a word boundry
+                    current.text[postion.0]
+                        .commentary
+                        .entry(postion.1 + 1)
+                        .or_insert(Commentary {
+                            sentence_translation: None,
+                            description_paragraph: None,
+                        })
+                        .description_paragraph
+                        .get_or_insert_with(|| vec![format!("description{postion:?}")]);
+                }
+
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('D'),
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Normal,
+                        postion,
+                        sub_postion: _,
+                        current,
+                    },
+                ) => {
+                    // TODO: make sure its not inside a word boundry
+                    current.text[postion.0]
+                        .commentary
+                        .entry(postion.1)
+                        .or_insert(Commentary {
+                            sentence_translation: None,
+                            description_paragraph: None,
+                        })
+                        .description_paragraph
+                        .get_or_insert_with(|| vec![format!("description{postion:?}")]);
                 }
                 (
                     Event::Key(KeyEvent {
@@ -354,25 +390,31 @@ fn render(
                                 line.commentary.iter().sorted_by_key(|x| x.0).fold(
                                     (String::new(), line.text, 0),
                                     |(text, mut plain_text, prev_i), (i, commentary)| {
+                                        log::trace!("{commentary:?} {column} {prev_i} {i}");
                                         let processing_text = plain_text.split_off(*i - prev_i);
-                                        let column = column - prev_i;
                                         if postion.1 < *i {
+                                            // this is buggy
+                                            let column = column - prev_i;
                                             plain_text.insert_str(column + 1, "\x1b[0m");
                                             plain_text.insert_str(column, "\x1b[47;5m");
                                         }
 
                                         (
                                             format!(
-                                                "{}{}{}{}{:?}",
+                                                "{}{}{}{}{}",
                                                 text,
                                                 if text.is_empty() { "" } else { "\n" },
                                                 plain_text,
-                                                if text.is_empty() && plain_text.is_empty() {
-                                                    ""
-                                                } else {
-                                                    "\n"
-                                                },
-                                                commentary,
+                                                commentary
+                                                    .sentence_translation
+                                                    .as_ref()
+                                                    .map_or("", String::as_str),
+                                                commentary
+                                                    .description_paragraph
+                                                    .as_ref()
+                                                    .map_or(String::new(), |text| {
+                                                        format!("\n{}\n", text.join("\n"))
+                                                    })
                                             ),
                                             processing_text,
                                             *i,
@@ -384,9 +426,15 @@ fn render(
                                 plain_text.insert_str(column + 1, "\x1b[0m");
                                 plain_text.insert_str(column, "\x1b[47;5m");
                             }
-                            line.text = text + &plain_text;
+                            let seperator = if text.is_empty() && !plain_text.is_empty() {
+                                ""
+                            } else {
+                                "\n"
+                            };
+                            text + seperator + &plain_text
+                        } else {
+                            line.text
                         }
-                        line.text
                     })
                     .join("\n");
                 frame.render_widget(

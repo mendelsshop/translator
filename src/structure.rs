@@ -19,9 +19,9 @@ pub struct Line {
 }
 
 #[derive(Debug, Clone)]
-pub enum Commentary {
-    SentenceTranslation(String),
-    DescriptionParagraph(String),
+pub struct Commentary {
+    pub sentence_translation: Option<String>,
+    pub description_paragraph: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
