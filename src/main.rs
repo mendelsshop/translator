@@ -246,7 +246,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     log::info!("t");
                     let line = &mut current.text[postion.0];
                     // make sure its not inside a word boundry
-                    let line_position = get_line_position(postion, line);
+                    let line_position = get_line_position(postion, line, true);
                     line.commentary
                         .entry(line_position + 1)
                         .or_insert(Commentary {
@@ -270,7 +270,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                 ) => {
                     let line = &mut current.text[postion.0];
                     // make sure its not inside a word boundry
-                    let line_position = get_line_position(postion, line);
+                    let line_position = get_line_position(postion, line, true);
                     line.commentary
                         .entry(line_position + 1)
                         .or_insert(Commentary {
@@ -294,7 +294,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     },
                 ) => {
                     let line = &mut current.text[postion.0];
-                    let line_position = get_line_position(postion, line);
+                    let line_position = get_line_position(postion, line, false);
                     // make sure its not inside a word boundry
                     line.commentary
                         .entry(line_position)
@@ -349,10 +349,13 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
     }
 }
 
-fn get_line_position(postion: &(usize, usize), line: &structure::Line) -> usize {
+fn get_line_position(postion: &(usize, usize), line: &structure::Line, end: bool) -> usize {
     line.words
         .get_key_value(&postion.1)
-        .map_or(postion.1, |(range, _)| range.end)
+        .map_or(
+            postion.1,
+            |(range, _)| if end { range.end } else { range.start },
+        )
 }
 
 fn render(
