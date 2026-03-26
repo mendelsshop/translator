@@ -70,7 +70,7 @@ impl AppState<'_> {
         !self.in_editing_mode()
     }
 }
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum TranslationState {
     Editing,
     #[default]
@@ -390,6 +390,52 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                 }
                 (
                     Event::Key(KeyEvent {
+                        code: KeyCode::Char(char),
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Editing,
+                        sub_postion: Some(CommentaryPosition::Description(line, column)),
+                        postion,
+                        current,
+                        ..
+                    },
+                ) => {
+                    if let Some(description) = &mut current.text[postion.0]
+                        .commentary
+                        .get_mut(&(postion.1))
+                        .unwrap()
+                        .description_paragraph
+                    {
+                        description[*line].insert(*column, char);
+                    }
+                }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Enter,
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Editing,
+                        sub_postion: Some(CommentaryPosition::Description(line, column)),
+                        postion,
+                        current,
+                        ..
+                    },
+                ) => {
+                    if let Some(description) = &mut current.text[postion.0]
+                        .commentary
+                        .get_mut(&(postion.1))
+                        .unwrap()
+                        .description_paragraph
+                    {
+                        description.push(String::new());
+                        *line += 1;
+                        *column = 0;
+                    }
+                }
+                (
+                    Event::Key(KeyEvent {
                         code: KeyCode::Char('i'),
                         ..
                     }),
@@ -466,7 +512,7 @@ fn render(
         match &mut app.kind {
             AppStateKind::Translating {
                 current,
-                translation_state: _,
+                translation_state,
                 postion,
                 sub_postion,
                 ..
@@ -501,25 +547,31 @@ fn render(
                                             && let Some(sub_postion) = sub_postion
                                         {
                                             match sub_postion {
-                                                CommentaryPosition::Description(_, _) => todo!(),
-                                                CommentaryPosition::Translation(column) => (
-                                                    commentary.sentence_translation.clone().map(
-                                                        |mut translation| {
-                                                            cursor_ify(
-                                                                &mut translation,
-                                                                *column,
-                                                                true,
-                                                            );
-                                                            translation
-                                                        },
-                                                    ),
-                                                    commentary.description_paragraph.as_ref(),
-                                                ),
+                                                CommentaryPosition::Description(line, column) => {
+                                                    cursor_ify_description(
+                                                        translation_state,
+                                                        commentary,
+                                                        *line,
+                                                        *column,
+                                                    )
+                                                }
+                                                CommentaryPosition::Translation(column) => {
+                                                    cursor_ify_translation(
+                                                        translation_state,
+                                                        commentary,
+                                                        *column,
+                                                    )
+                                                }
                                             }
                                         } else {
                                             (
                                                 commentary.sentence_translation.clone(),
-                                                commentary.description_paragraph.as_ref(),
+                                                commentary
+                                                    .description_paragraph
+                                                    .as_ref()
+                                                    .map_or(String::new(), |text| {
+                                                        format!("\n{}\n", text.join("\n"))
+                                                    }),
                                             )
                                         };
 
@@ -530,9 +582,7 @@ fn render(
                                                 if text.is_empty() { "" } else { "\n" },
                                                 plain_text,
                                                 translation.as_ref().map_or("", String::as_str),
-                                                description.map_or(String::new(), |text| {
-                                                    format!("\n{}\n", text.join("\n"))
-                                                })
+                                                description
                                             ),
                                             processing_text,
                                             *i,
@@ -571,6 +621,63 @@ fn render(
         let status = draw_status(&app.status);
         frame.render_widget(status, *layout.get(3).expect("could not get area to draw"));
     }
+}
+
+fn cursor_ify_description(
+    translation_state: &TranslationState,
+    commentary: &Commentary,
+    line: usize,
+    column: usize,
+) -> (Option<String>, String) {
+    (
+        commentary.sentence_translation.clone(),
+        commentary
+            .description_paragraph
+            .as_ref()
+            .map_or(String::new(), |text| {
+                format!(
+                    "\n{}\n",
+                    text.iter()
+                        .cloned()
+                        .enumerate()
+                        .map(|(i, mut s)| {
+                            if i == line {
+                                cursor_ify(
+                                    &mut s,
+                                    column,
+                                    *translation_state == TranslationState::Editing,
+                                );
+                            }
+                            s
+                        })
+                        .join("\n")
+                )
+            }),
+    )
+}
+
+fn cursor_ify_translation(
+    translation_state: &TranslationState,
+    commentary: &Commentary,
+    column: usize,
+) -> (Option<String>, String) {
+    (
+        commentary
+            .sentence_translation
+            .clone()
+            .map(|mut translation| {
+                cursor_ify(
+                    &mut translation,
+                    column,
+                    *translation_state == TranslationState::Editing,
+                );
+                translation
+            }),
+        commentary
+            .description_paragraph
+            .as_ref()
+            .map_or(String::new(), |text| format!("\n{}\n", text.join("\n"))),
+    )
 }
 
 fn cursor_ify(plain_text: &mut String, column: usize, edit: bool) {
