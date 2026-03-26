@@ -168,6 +168,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         translation_state: TranslationState::Normal,
                         postion,
                         current,
+                        sub_postion: None,
                         ..
                     },
                 ) => {
@@ -190,6 +191,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
+                        sub_postion: None,
                         ..
                     },
                 ) => {
@@ -207,6 +209,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
+                        sub_postion: None,
                         ..
                     },
                 ) => {
@@ -225,6 +228,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         translation_state: TranslationState::Normal,
                         postion,
                         current,
+                        sub_postion: None,
                         ..
                     },
                 ) => {
@@ -257,13 +261,14 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         // make sure its not inside a word boundry
                         let line_position = get_line_position(postion, line, true);
                         line.commentary
-                            .entry(line_position + 1)
+                            .entry(line_position)
                             .or_insert(Commentary {
                                 sentence_translation: None,
                                 description_paragraph: None,
                             })
                             .sentence_translation
                             .get_or_insert_default();
+                        postion.1 = line_position;
                         *sub_postion = Some(CommentaryPosition::Translation(0));
                     }
                 }
@@ -288,13 +293,14 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         // make sure its not inside a word boundry
                         let line_position = get_line_position(postion, line, true);
                         line.commentary
-                            .entry(line_position + 1)
+                            .entry(line_position)
                             .or_insert(Commentary {
                                 sentence_translation: None,
                                 description_paragraph: None,
                             })
                             .description_paragraph
                             .get_or_insert_default();
+                        postion.1 = line_position;
                         *sub_postion = Some(CommentaryPosition::Description(0, 0));
                     }
                 }
@@ -327,6 +333,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                             })
                             .description_paragraph
                             .get_or_insert_default();
+                        postion.1 = line_position;
                         *sub_postion = Some(CommentaryPosition::Description(0, 0));
                     }
                 }
@@ -359,14 +366,39 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     },
                 ) => *translation_state = TranslationState::Normal,
                 (
-                    event,
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char(char),
+                        ..
+                    }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Editing,
+                        sub_postion: Some(CommentaryPosition::Translation(i)),
+                        postion,
+                        current,
                         ..
                     },
                 ) => {
-                    app.input_buffer.input(event);
+                    if let Some(translation) = &mut current.text[postion.0]
+                        .commentary
+                        .get_mut(&(postion.1))
+                        .unwrap()
+                        .sentence_translation
+                    {
+                        translation.insert(*i, char);
+                        *i += 1;
+                    }
                 }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('i'),
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: translation_state @ TranslationState::Normal,
+                        sub_postion: Some(_),
+                        ..
+                    },
+                ) => *translation_state = TranslationState::Editing,
                 (
                     Event::Key(KeyEvent {
                         code: KeyCode::Char(' '),
@@ -436,6 +468,7 @@ fn render(
                 current,
                 translation_state: _,
                 postion,
+                sub_postion,
                 ..
             } => {
                 let text = current
@@ -443,13 +476,10 @@ fn render(
                     .iter()
                     .cloned()
                     .enumerate()
-                    .map(|(i, mut line)| {
+                    .map(|(i, line)| {
                         // Current behaviour is to hide any commentary not current line maybe have
                         // toggle to control
                         if i == postion.0 {
-                            if line.text.is_empty() {
-                                line.text.push(' ');
-                            }
                             let column = current.text.get(postion.0).map_or(0, |text| {
                                 (text.text.len().saturating_sub(1)).min(postion.1)
                             });
@@ -460,12 +490,38 @@ fn render(
                                     |(text, mut plain_text, prev_i), (i, commentary)| {
                                         log::trace!("{commentary:?} {column} {prev_i} {i}");
                                         let processing_text = plain_text.split_off(*i - prev_i);
-                                        if postion.1 < *i {
+                                        if postion.1 < *i && sub_postion.is_none() {
                                             // this is buggy
                                             let column = column - prev_i;
-                                            plain_text.insert_str(column + 1, "\x1b[0m");
-                                            plain_text.insert_str(column, "\x1b[47;5m");
+                                            // if plain_text is empty, it len() will be 0, and column +
+                                            // 1 will be 1
+                                            cursor_ify(&mut plain_text, column, false);
                                         }
+                                        let (translation, description) = if *i == postion.1
+                                            && let Some(sub_postion) = sub_postion
+                                        {
+                                            match sub_postion {
+                                                CommentaryPosition::Description(_, _) => todo!(),
+                                                CommentaryPosition::Translation(column) => (
+                                                    commentary.sentence_translation.clone().map(
+                                                        |mut translation| {
+                                                            cursor_ify(
+                                                                &mut translation,
+                                                                *column,
+                                                                true,
+                                                            );
+                                                            translation
+                                                        },
+                                                    ),
+                                                    commentary.description_paragraph.as_ref(),
+                                                ),
+                                            }
+                                        } else {
+                                            (
+                                                commentary.sentence_translation.clone(),
+                                                commentary.description_paragraph.as_ref(),
+                                            )
+                                        };
 
                                         (
                                             format!(
@@ -473,26 +529,19 @@ fn render(
                                                 text,
                                                 if text.is_empty() { "" } else { "\n" },
                                                 plain_text,
-                                                commentary
-                                                    .sentence_translation
-                                                    .as_ref()
-                                                    .map_or("", String::as_str),
-                                                commentary
-                                                    .description_paragraph
-                                                    .as_ref()
-                                                    .map_or(String::new(), |text| {
-                                                        format!("\n{}\n", text.join("\n"))
-                                                    })
+                                                translation.as_ref().map_or("", String::as_str),
+                                                description.map_or(String::new(), |text| {
+                                                    format!("\n{}\n", text.join("\n"))
+                                                })
                                             ),
                                             processing_text,
                                             *i,
                                         )
                                     },
                                 );
-                            if postion.1 >= prev_i {
+                            if postion.1 >= prev_i && sub_postion.is_none() {
                                 let column = column - prev_i;
-                                plain_text.insert_str(column + 1, "\x1b[0m");
-                                plain_text.insert_str(column, "\x1b[47;5m");
+                                cursor_ify(&mut plain_text, column, false);
                             }
                             let seperator = if text.is_empty() && !plain_text.is_empty() {
                                 ""
@@ -522,4 +571,16 @@ fn render(
         let status = draw_status(&app.status);
         frame.render_widget(status, *layout.get(3).expect("could not get area to draw"));
     }
+}
+
+fn cursor_ify(plain_text: &mut String, column: usize, edit: bool) {
+    if plain_text.is_empty() ||
+    // column for edit is always ahead of the current char
+    (edit && column == plain_text.len())
+    {
+        plain_text.push_str(" \x1b[0m");
+    } else {
+        plain_text.insert_str(column + 1, "\x1b[0m");
+    }
+    plain_text.insert_str(column, "\x1b[47;5m");
 }
