@@ -76,11 +76,18 @@ pub enum TranslationState {
     #[default]
     Normal,
 }
+#[derive(Debug, Clone)]
+pub enum CommentaryPosition {
+    Description(usize, usize),
+    Translation(usize),
+}
 #[derive(Debug, Clone, Default)]
 pub enum AppStateKind {
     Translating {
         postion: (usize, usize),
-        sub_postion: usize,
+
+        sub_postion: Option<CommentaryPosition>,
+        command_buffer: String,
         current: structure::Text,
         translation_state: TranslationState,
     },
@@ -160,8 +167,8 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
-                        sub_postion: _,
                         current,
+                        ..
                     },
                 ) => {
                     log::trace!("l");
@@ -183,8 +190,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
-                        sub_postion: _,
-                        current: _,
+                        ..
                     },
                 ) => {
                     log::trace!("h");
@@ -201,8 +207,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
-                        sub_postion: _,
-                        current: _,
+                        ..
                     },
                 ) => {
                     log::trace!("k");
@@ -219,8 +224,8 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
-                        sub_postion: _,
                         current,
+                        ..
                     },
                 ) => {
                     log::trace!("j");
@@ -239,22 +244,28 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
-                        sub_postion: _,
                         current,
+                        command_buffer,
+                        sub_postion,
+                        ..
                     },
                 ) => {
                     log::info!("t");
-                    let line = &mut current.text[postion.0];
-                    // make sure its not inside a word boundry
-                    let line_position = get_line_position(postion, line, true);
-                    line.commentary
-                        .entry(line_position + 1)
-                        .or_insert(Commentary {
-                            sentence_translation: None,
-                            description_paragraph: None,
-                        })
-                        .sentence_translation
-                        .get_or_insert_with(|| format!("translation{postion:?}"));
+                    if command_buffer == " " {
+                        command_buffer.clear();
+                        let line = &mut current.text[postion.0];
+                        // make sure its not inside a word boundry
+                        let line_position = get_line_position(postion, line, true);
+                        line.commentary
+                            .entry(line_position + 1)
+                            .or_insert(Commentary {
+                                sentence_translation: None,
+                                description_paragraph: None,
+                            })
+                            .sentence_translation
+                            .get_or_insert_default();
+                        *sub_postion = Some(CommentaryPosition::Translation(0));
+                    }
                 }
                 (
                     Event::Key(KeyEvent {
@@ -264,21 +275,28 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
-                        sub_postion: _,
                         current,
+                        sub_postion,
+                        command_buffer,
+                        ..
                     },
                 ) => {
-                    let line = &mut current.text[postion.0];
-                    // make sure its not inside a word boundry
-                    let line_position = get_line_position(postion, line, true);
-                    line.commentary
-                        .entry(line_position + 1)
-                        .or_insert(Commentary {
-                            sentence_translation: None,
-                            description_paragraph: None,
-                        })
-                        .description_paragraph
-                        .get_or_insert_with(|| vec![format!("description{postion:?}")]);
+                    log::info!("d");
+                    if command_buffer == " " {
+                        command_buffer.clear();
+                        let line = &mut current.text[postion.0];
+                        // make sure its not inside a word boundry
+                        let line_position = get_line_position(postion, line, true);
+                        line.commentary
+                            .entry(line_position + 1)
+                            .or_insert(Commentary {
+                                sentence_translation: None,
+                                description_paragraph: None,
+                            })
+                            .description_paragraph
+                            .get_or_insert_default();
+                        *sub_postion = Some(CommentaryPosition::Description(0, 0));
+                    }
                 }
 
                 (
@@ -289,21 +307,45 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
-                        sub_postion: _,
+                        sub_postion,
                         current,
+                        command_buffer,
+                        ..
                     },
                 ) => {
-                    let line = &mut current.text[postion.0];
-                    let line_position = get_line_position(postion, line, false);
-                    // make sure its not inside a word boundry
-                    line.commentary
-                        .entry(line_position)
-                        .or_insert(Commentary {
-                            sentence_translation: None,
-                            description_paragraph: None,
-                        })
-                        .description_paragraph
-                        .get_or_insert_with(|| vec![format!("description{postion:?}")]);
+                    log::info!("D");
+                    if command_buffer == " " {
+                        command_buffer.clear();
+                        let line = &mut current.text[postion.0];
+                        let line_position = get_line_position(postion, line, false);
+                        // make sure its not inside a word boundry
+                        line.commentary
+                            .entry(line_position)
+                            .or_insert(Commentary {
+                                sentence_translation: None,
+                                description_paragraph: None,
+                            })
+                            .description_paragraph
+                            .get_or_insert_default();
+                        *sub_postion = Some(CommentaryPosition::Description(0, 0));
+                    }
+                }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Esc, ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Normal,
+                        sub_postion,
+                        command_buffer,
+                        ..
+                    },
+                ) => {
+                    log::info!("esc");
+                    if command_buffer == " " {
+                        command_buffer.clear();
+                        *sub_postion = None;
+                    }
                 }
                 (
                     Event::Key(KeyEvent {
@@ -325,6 +367,19 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                 ) => {
                     app.input_buffer.input(event);
                 }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char(' '),
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Normal,
+                        command_buffer,
+                        ..
+                    },
+                ) => {
+                    command_buffer.push(' ');
+                }
                 (event, _) => {
                     file_explorer.handle(&event)?;
                     if let Event::Key(KeyEvent {
@@ -337,9 +392,10 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
 
                         let current = parse(&file);
                         app.kind = AppStateKind::Translating {
-                            sub_postion: 0,
+                            sub_postion: None,
                             postion: (0, 0),
                             current,
+                            command_buffer: String::new(),
                             translation_state: TranslationState::Normal,
                         };
                     }
@@ -379,8 +435,8 @@ fn render(
             AppStateKind::Translating {
                 current,
                 translation_state: _,
-                sub_postion: _,
                 postion,
+                ..
             } => {
                 let text = current
                     .text
