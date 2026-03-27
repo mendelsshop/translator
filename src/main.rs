@@ -216,14 +216,25 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
-                        sub_postion: None,
+                        sub_postion,
                         ..
                     },
                 ) => {
                     log::trace!("h");
-                    if postion.1 > 0 {
-                        log::trace!("h(active)");
-                        postion.1 -= 1;
+                    match sub_postion {
+                        Some(
+                            CommentaryPosition::Description(_, column)
+                            | CommentaryPosition::Translation(column),
+                        ) => {
+                            if *column > 0 {
+                                *column -= 1;
+                            }
+                        }
+                        _ if postion.1 > 0 => {
+                            log::trace!("h(active)");
+                            postion.1 -= 1;
+                        }
+                        _ => (),
                     }
                 }
                 (
@@ -234,12 +245,19 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         postion,
-                        sub_postion: None,
+                        sub_postion,
                         ..
                     },
                 ) => {
                     log::trace!("k");
-                    if postion.0 > 0 {
+                    if let Some(CommentaryPosition::Description(line, _)) = sub_postion {
+                        if *line > 0 {
+                            *line -= 1;
+                        }
+                    } else if postion.0 > 0 {
+                        // if editing translation and press k then you exit translation (b/c not
+                        // more than one line)
+                        *sub_postion = None;
                         log::trace!("k(active)");
                         postion.0 -= 1;
                     }
