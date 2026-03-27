@@ -168,12 +168,37 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         translation_state: TranslationState::Normal,
                         postion,
                         current,
-                        sub_postion: None,
+                        sub_postion,
                         ..
                     },
                 ) => {
                     log::trace!("l");
-                    if current
+                    if let Some(sub_postion) = sub_postion {
+                        current.text[postion.0]
+                            .commentary
+                            .get(&postion.1)
+                            .inspect(|commentary| match sub_postion {
+                                CommentaryPosition::Description(line, column)
+                                    if commentary.description_paragraph.as_ref().is_some_and(
+                                        |desc| {
+                                            desc.get(*line).is_some_and(|desc_line| {
+                                                *column < desc_line.len().saturating_sub(1)
+                                            })
+                                        },
+                                    ) =>
+                                {
+                                    *column += 1;
+                                }
+                                CommentaryPosition::Translation(column)
+                                    if commentary.sentence_translation.as_ref().is_some_and(
+                                        |translation| *column < translation.len().saturating_sub(1),
+                                    ) =>
+                                {
+                                    *column += 1;
+                                }
+                                _ => {}
+                            });
+                    } else if current
                         .text
                         .get(postion.0)
                         .is_some_and(|line| postion.1 < line.text.len().saturating_sub(1))
@@ -384,8 +409,11 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         .unwrap()
                         .sentence_translation
                     {
-                        translation.insert(*i, char);
-                        *i += 1;
+                        let len = translation.len();
+                        translation.insert(if translation.is_empty() { 0 } else { *i + 1 }, char);
+                        if len != 0 {
+                            *i += 1;
+                        }
                     }
                 }
                 (
@@ -407,7 +435,12 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         .unwrap()
                         .description_paragraph
                     {
-                        description[*line].insert(*column, char);
+                        let line = &mut description[*line];
+                        let len = line.len();
+                        line.insert(if line.is_empty() { 0 } else { *column + 1 }, char);
+                        if len != 0 {
+                            *column += 1;
+                        }
                     }
                 }
                 (
@@ -680,7 +713,10 @@ fn cursor_ify_translation(
     )
 }
 
-fn cursor_ify(plain_text: &mut String, column: usize, edit: bool) {
+fn cursor_ify(plain_text: &mut String, mut column: usize, edit: bool) {
+    if edit {
+        column += 1;
+    }
     if plain_text.is_empty() ||
     // column for edit is always ahead of the current char
     (edit && column == plain_text.len())
