@@ -17,6 +17,22 @@ pub struct Line {
     pub words: RangeMap<usize, Word>,
     pub commentary: BTreeMap<usize, Commentary>,
 }
+impl Line {
+    pub fn position_or_text_len(&self, postion: usize) -> usize {
+        (self.text.len().saturating_sub(1)).min(postion)
+    }
+
+    pub fn get_commentary_mut(&mut self, postion: usize) -> Option<&mut Commentary> {
+        self.commentary.get_mut(&self.position_or_text_len(postion))
+    }
+    pub fn get_commentary(&self, postion: usize) -> Option<&Commentary> {
+        self.commentary.get(&self.position_or_text_len(postion))
+    }
+
+    pub fn get_commentary_unchecked(&self, postion: usize) -> &Commentary {
+        &self.commentary[&self.position_or_text_len(postion)]
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Commentary {

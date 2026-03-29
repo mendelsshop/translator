@@ -175,8 +175,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     log::trace!("l");
                     if let Some(sub_postion) = sub_postion {
                         current.text[postion.0]
-                            .commentary
-                            .get(&postion.1)
+                            .get_commentary(postion.1)
                             .inspect(|commentary| match sub_postion {
                                 CommentaryPosition::Description(line, column)
                                     if commentary.description_paragraph.as_ref().is_some_and(
@@ -217,22 +216,39 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         translation_state: TranslationState::Normal,
                         postion,
                         sub_postion,
+                        current,
                         ..
                     },
                 ) => {
                     log::trace!("h");
                     match sub_postion {
-                        Some(
-                            CommentaryPosition::Description(_, column)
-                            | CommentaryPosition::Translation(column),
-                        ) => {
+                        Some(CommentaryPosition::Description(line_pos, column)) => {
+                            if *column > 0 {
+                                let line = &current.text[postion.0];
+                                *column = (*column - 1)
+                                    // if cursor was from previous line which was longer we have to go
+                                    // back 2 b/c len is 1 based, and we where already at last column
+                                    .min(
+                                        line.get_commentary_unchecked(postion.1)
+                                            .description_paragraph
+                                            .as_ref()
+                                            .unwrap()[*line_pos]
+                                            .len()
+                                            .saturating_sub(2),
+                                    );
+                            }
+                        }
+                        Some(CommentaryPosition::Translation(column)) => {
                             if *column > 0 {
                                 *column -= 1;
                             }
                         }
                         _ if postion.1 > 0 => {
                             log::trace!("h(active)");
-                            postion.1 -= 1;
+                            postion.1 = (postion.1 - 1)
+                                // if cursor was from previous line which was longer we have to go
+                                // back 2 b/c len is 1 based, and we where already at last column
+                                .min(current.text[postion.0].text.len().saturating_sub(2));
                         }
                         _ => (),
                     }
@@ -276,14 +292,16 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     },
                 ) => {
                     log::trace!("j");
-                    if let Some(CommentaryPosition::Description(line, _)) = sub_postion {
+                    if let Some(CommentaryPosition::Description(line_pos, _)) = sub_postion {
                         // TODO: maybe don't index and actually check that those indicies exist
-                        if current.text[postion.0].commentary[&postion.1]
+                        let line = &current.text[postion.0];
+                        if line
+                            .get_commentary_unchecked(postion.1)
                             .description_paragraph
                             .as_ref()
-                            .is_some_and(|desc| *line < desc.len())
+                            .is_some_and(|desc| *line_pos < desc.len())
                         {
-                            *line += 1;
+                            *line_pos += 1;
                         }
                     }
                     // TODO: it depends on how the last line ends(CLRF...)
@@ -324,7 +342,9 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                             })
                             .sentence_translation
                             .get_or_insert_default();
-                        postion.1 = line_position;
+                        if postion.1 < line.text.len() {
+                            postion.1 = line_position;
+                        }
                         *sub_postion = Some(CommentaryPosition::Translation(0));
                     }
                 }
@@ -355,8 +375,10 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                                 description_paragraph: None,
                             })
                             .description_paragraph
-                            .get_or_insert_default();
-                        postion.1 = line_position;
+                            .get_or_insert_with(|| vec![String::new()]);
+                        if postion.1 < line.text.len() {
+                            postion.1 = line_position;
+                        }
                         *sub_postion = Some(CommentaryPosition::Description(0, 0));
                     }
                 }
@@ -389,7 +411,10 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                             })
                             .description_paragraph
                             .get_or_insert_default();
-                        postion.1 = line_position;
+                        // only update the position if its less than line length
+                        if postion.1 < line.text.len() {
+                            postion.1 = line_position;
+                        }
                         *sub_postion = Some(CommentaryPosition::Description(0, 0));
                     }
                 }
@@ -441,6 +466,8 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         .sentence_translation
                     {
                         let len = translation.len();
+                        // editing is considered setting a new cursor positoin
+                        *i = len.saturating_sub(1);
                         translation.insert(if translation.is_empty() { 0 } else { *i + 1 }, char);
                         if len != 0 {
                             *i += 1;
@@ -461,13 +488,14 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     },
                 ) => {
                     if let Some(description) = &mut current.text[postion.0]
-                        .commentary
-                        .get_mut(&(postion.1))
+                        .get_commentary_mut(postion.1)
                         .unwrap()
                         .description_paragraph
                     {
                         let line = &mut description[*line];
                         let len = line.len();
+                        // editing is considered setting a new cursor positoin
+                        *column = len.saturating_sub(1);
                         line.insert(if line.is_empty() { 0 } else { *column + 1 }, char);
                         if len != 0 {
                             *column += 1;
@@ -488,8 +516,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     },
                 ) => {
                     if let Some(description) = &mut current.text[postion.0]
-                        .commentary
-                        .get_mut(&(postion.1))
+                        .get_commentary_mut(postion.1)
                         .unwrap()
                         .description_paragraph
                     {
@@ -548,12 +575,12 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
 }
 
 fn get_line_position(postion: &(usize, usize), line: &structure::Line, end: bool) -> usize {
-    line.words
-        .get_key_value(&postion.1)
-        .map_or(
-            postion.1,
-            |(range, _)| if end { range.end } else { range.start },
-        )
+    line.words.get_key_value(&postion.1).map_or_else(
+        || position_or_text_len(postion.1, &line.text),
+        |(range, _)| {
+            if end { range.end } else { range.start }
+        },
+    )
 }
 
 fn render(
@@ -590,9 +617,10 @@ fn render(
                         // Current behaviour is to hide any commentary not current line maybe have
                         // toggle to control
                         if i == postion.0 {
-                            let column = current.text.get(postion.0).map_or(0, |text| {
-                                (text.text.len().saturating_sub(1)).min(postion.1)
-                            });
+                            let column = current
+                                .text
+                                .get(postion.0)
+                                .map_or(0, |text| position_or_text_len(postion.1, &text.text));
 
                             let (text, mut plain_text, prev_i) =
                                 line.commentary.iter().sorted_by_key(|x| x.0).fold(
@@ -687,6 +715,10 @@ fn render(
     }
 }
 
+fn position_or_text_len(postion: usize, text: &str) -> usize {
+    (text.len().saturating_sub(1)).min(postion)
+}
+
 fn cursor_ify_description(
     translation_state: &TranslationState,
     commentary: &Commentary,
@@ -745,6 +777,8 @@ fn cursor_ify_translation(
 }
 
 fn cursor_ify(plain_text: &mut String, mut column: usize, edit: bool) {
+    // if cursor was at previous line which was longer "wrap" cursor to current line's len
+    column = position_or_text_len(column, plain_text);
     if edit {
         column += 1;
     }
