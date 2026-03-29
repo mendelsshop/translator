@@ -271,14 +271,27 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         translation_state: TranslationState::Normal,
                         postion,
                         current,
-                        sub_postion: None,
+                        sub_postion,
                         ..
                     },
                 ) => {
                     log::trace!("j");
+                    if let Some(CommentaryPosition::Description(line, _)) = sub_postion {
+                        // TODO: maybe don't index and actually check that those indicies exist
+                        if current.text[postion.0].commentary[&postion.1]
+                            .description_paragraph
+                            .as_ref()
+                            .is_some_and(|desc| *line < desc.len())
+                        {
+                            *line += 1;
+                        }
+                    }
                     // TODO: it depends on how the last line ends(CLRF...)
-                    if postion.0 < current.text.len().saturating_sub(2) {
+                    else if postion.0 < current.text.len().saturating_sub(2) {
                         postion.0 += 1;
+                        // if editing translation and press j then you exit translation (b/c not
+                        // more than one line)
+                        *sub_postion = None;
 
                         log::trace!("j(active)",);
                     }
