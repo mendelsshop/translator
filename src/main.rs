@@ -189,6 +189,9 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                                         },
                                     ) =>
                                 {
+                                    // TODO: also keep track of column number for string just the
+                                    // shown character index using str::floor_char_boundary(index),
+                                    // and str::ceil_char_boundary
                                     *column += 1;
                                 }
                                 CommentaryPosition::Translation(column)
@@ -635,6 +638,8 @@ fn render(
                                     |(text, mut plain_text, prev_i), (i, commentary)| {
                                         log::trace!("{commentary:?} {column} {prev_i} {i}");
                                         let processing_text = plain_text.split_off(*i - prev_i);
+                                        plain_text = plain_text.chars().rev().collect();
+                                        log::info!("plain text {plain_text}");
                                         if position.1 < *i && sub_position.is_none() {
                                             // this is buggy
                                             let column = column - prev_i;
@@ -699,7 +704,7 @@ fn render(
                             };
                             text + separator + &plain_text
                         } else {
-                            line.text
+                            line.text.chars().rev().collect()
                         }
                     })
                     .join("\n");
@@ -800,9 +805,19 @@ fn cursor_ify(plain_text: &mut String, mut column: usize, edit: bool, ltr: bool)
     // column for edit is always ahead of the current char
     (edit && column == plain_text.len())
     {
-        plain_text.push_str("\x1b[47;5m \x1b[0m");
+        if ltr {
+            plain_text.push_str("\x1b[47;5m \x1b[0m");
+        } else {
+            plain_text.insert_str(0, "\x1b[47;5m \x1b[0m");
+        }
     } else {
+        if !ltr {
+            column = plain_text.len().saturating_sub(1) - column;
+        }
+        log::trace!("cursor  with len  {} {column} {edit}", plain_text.len());
         plain_text.insert_str(column + 1, "\x1b[0m");
+        log::trace!("cursor  {plain_text } {}  ", plain_text.escape_unicode(),);
+
         plain_text.insert_str(column, "\x1b[47;5m");
     }
 }
