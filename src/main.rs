@@ -30,6 +30,9 @@ use crate::{converter::parse, structure::Commentary};
 
 fn main() -> Result<()> {
     simple_file_logger::init_logger("translator", simple_file_logger::LogLevel::Trace)?;
+    // currenlty we only set non bidi mode when we load a file, but for file picking since we rely
+    // on ratatui_explorer which does do bidi we rely on the terminal emulator
+    // print!("\x1b[8l\x1b[1 k");
     color_eyre::install()?;
     let terminal = ratatui::init();
     let app = AppState {
@@ -562,6 +565,8 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         let file = read_to_string(file_explorer.current().path.clone()).unwrap();
 
                         let current = parse(&file);
+                        // turn of any bidi mode
+                        println!("\x1b[8l\x1b[1 k");
                         app.kind = AppStateKind::Translating {
                             sub_position: None,
                             position: (0, 0),
@@ -635,7 +640,7 @@ fn render(
                                             let column = column - prev_i;
                                             // if plain_text is empty, it len() will be 0, and column +
                                             // 1 will be 1
-                                            cursor_ify(&mut plain_text, column, false);
+                                            cursor_ify(&mut plain_text, column, false, false);
                                         }
                                         let (translation, description) = if *i == position.1
                                             && let Some(sub_position) = sub_position
@@ -685,7 +690,7 @@ fn render(
                                 );
                             if position.1 >= prev_i && sub_position.is_none() {
                                 let column = column - prev_i;
-                                cursor_ify(&mut plain_text, column, false);
+                                cursor_ify(&mut plain_text, column, false, false);
                             }
                             let separator = if text.is_empty() && !plain_text.is_empty() {
                                 ""
@@ -744,6 +749,7 @@ fn cursor_ify_description(
                                     &mut s,
                                     column,
                                     *translation_state == TranslationState::Editing,
+                                    true,
                                 );
                             }
                             s
@@ -768,6 +774,7 @@ fn cursor_ify_translation(
                     &mut translation,
                     column,
                     *translation_state == TranslationState::Editing,
+                    true,
                 );
                 translation
             }),
@@ -778,7 +785,8 @@ fn cursor_ify_translation(
     )
 }
 
-fn cursor_ify(plain_text: &mut String, mut column: usize, edit: bool) {
+fn cursor_ify(plain_text: &mut String, mut column: usize, edit: bool, ltr: bool) {
+    // TODO: if its rtl than there are still numbers, and if its ltr there can be hebrew phrases
     log::trace!(
         "cursor {plain_text} with len  {} {column} {edit}",
         plain_text.len()
