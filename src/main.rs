@@ -638,7 +638,7 @@ fn render(
                                     |(text, mut plain_text, prev_i), (i, commentary)| {
                                         log::trace!("{commentary:?} {column} {prev_i} {i}");
                                         let processing_text = plain_text.split_off(*i - prev_i);
-                                        plain_text = plain_text.chars().rev().collect();
+                                        plain_text = bidi(&plain_text);
                                         log::info!("plain text {plain_text}");
                                         if position.1 < *i && sub_position.is_none() {
                                             // this is buggy
@@ -693,6 +693,7 @@ fn render(
                                         )
                                     },
                                 );
+                            plain_text = bidi(&plain_text);
                             if position.1 >= prev_i && sub_position.is_none() {
                                 let column = column - prev_i;
                                 cursor_ify(&mut plain_text, column, false, false);
@@ -704,7 +705,7 @@ fn render(
                             };
                             text + separator + &plain_text
                         } else {
-                            line.text.chars().rev().collect()
+                            bidi(&line.text)
                         }
                     })
                     .join("\n");
@@ -725,6 +726,18 @@ fn render(
         let status = draw_status(&app.status);
         frame.render_widget(status, *layout.get(3).expect("could not get area to draw"));
     }
+}
+
+fn bidi(plain_text: &str) -> String {
+    plain_text
+        .chars()
+        .chunk_by(char::is_ascii_alphanumeric)
+        .into_iter()
+        .collect_vec()
+        .into_iter()
+        .rev()
+        .flat_map(|(_, chunk)| chunk)
+        .collect()
 }
 
 fn position_or_text_len(position: usize, text: &str) -> usize {
