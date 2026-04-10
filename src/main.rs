@@ -638,15 +638,18 @@ fn render(
                                     |(text, mut plain_text, prev_i), (i, commentary)| {
                                         log::trace!("{commentary:?} {column} {prev_i} {i}");
                                         let processing_text = plain_text.split_off(*i - prev_i);
-                                        plain_text = bidi(&plain_text);
                                         log::info!("plain text {plain_text}");
-                                        if position.1 < *i && sub_position.is_none() {
-                                            // this is buggy
-                                            let column = column - prev_i;
-                                            // if plain_text is empty, it len() will be 0, and column +
-                                            // 1 will be 1
-                                            cursor_ify(&mut plain_text, column, false, false);
-                                        }
+                                        let column_cursor =
+                                            if position.1 < *i && sub_position.is_none() {
+                                                // this is buggy
+                                                let column = column - prev_i;
+                                                // if plain_text is empty, it len() will be 0, and column +
+                                                // 1 will be 1
+                                                Some(column)
+                                            } else {
+                                                None
+                                            };
+                                        plain_text = bidi(&plain_text, column_cursor);
                                         let (translation, description) = if *i == position.1
                                             && let Some(sub_position) = sub_position
                                         {
@@ -693,11 +696,15 @@ fn render(
                                         )
                                     },
                                 );
-                            plain_text = bidi(&plain_text);
-                            if position.1 >= prev_i && sub_position.is_none() {
+                            // sub postion should not be some here technically as its the last thing
+                            // on the line
+                            let column_cursor = if position.1 >= prev_i && sub_position.is_none() {
                                 let column = column - prev_i;
-                                cursor_ify(&mut plain_text, column, false, false);
-                            }
+                                Some(column)
+                            } else {
+                                None
+                            };
+                            plain_text = bidi(&plain_text, column_cursor);
                             let separator = if text.is_empty() && !plain_text.is_empty() {
                                 ""
                             } else {
@@ -705,7 +712,7 @@ fn render(
                             };
                             text + separator + &plain_text
                         } else {
-                            bidi(&line.text)
+                            bidi(&line.text, None)
                         }
                     })
                     .join("\n");
@@ -728,7 +735,7 @@ fn render(
     }
 }
 
-fn bidi(plain_text: &str) -> String {
+fn bidi(plain_text: &str, _cursor: Option<usize>) -> String {
     plain_text
         .chars()
         .chunk_by(char::is_ascii_alphanumeric)
