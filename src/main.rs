@@ -735,16 +735,55 @@ fn render(
     }
 }
 
-fn bidi(plain_text: &str, _cursor: Option<usize>) -> String {
-    plain_text
-        .chars()
-        .chunk_by(char::is_ascii_alphanumeric)
+fn bidi(plain_text: &str, cursor: Option<usize>) -> String {
+    let chars = plain_text.chars();
+    if let Some(cursor) = cursor {
+        bidi_inner(
+            chars.enumerate(),
+            |(_, char)| *char,
+            |i| {
+                i.flat_map(|(i, char)| {
+                    if i == cursor {
+                        vec![
+                            '\x1b', '[', '4', '7', ';', '5', 'm', char, '\x1b', '[', '4', '7', ';',
+                            '0', 'm',
+                        ]
+                    } else {
+                        vec![char]
+                    }
+                })
+                .collect()
+            },
+        )
+    } else {
+        bidi_inner(chars, |char| *char, |i| i.collect())
+    }
+}
+
+fn bidi_inner<'a, T: 'a, U>(
+    plain_text: impl Iterator<Item = T> + 'a,
+    to_char: impl Fn(&T) -> char + 'a + Copy,
+    k: impl FnOnce(&mut dyn Iterator<Item = T>) -> U,
+) -> U {
+    #[derive(PartialEq, PartialOrd)]
+    enum CharType {
+
+        Ltr,
+        Rtl(char),
+    }
+    k(&mut plain_text
+        .chunk_by(move |t| {
+            if to_char(t).is_ascii_alphanumeric() {
+                CharType::Ltr
+            } else {
+                CharType::Rtl(to_char(t))
+            }
+        })
         .into_iter()
         .collect_vec()
         .into_iter()
         .rev()
-        .flat_map(|(_, chunk)| chunk)
-        .collect()
+        .flat_map(|(_, chunk)| chunk))
 }
 
 fn position_or_text_len(position: usize, text: &str) -> usize {
