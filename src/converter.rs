@@ -11,10 +11,11 @@ pub fn parse(s: &str) -> structure::Text {
             .map(|text| {
                 let (mut words, state) = text
                     .char_indices()
-                    .filter(|(_, char)| char.is_alphabetic())
+                    .enumerate()
+                    .filter(|(_, (_, char))| char.is_alphabetic())
                     .fold(
                         (RangeMap::new(), None::<(usize, usize, Vec<char>)>),
-                        |(mut map, state), (i, char)| {
+                        |(mut map, state), (i, (_byte_i, char))| {
                             if let Some((start, stop, mut chars)) = state {
                                 if stop + 1 == i {
                                     chars.push(char);

@@ -637,7 +637,9 @@ fn render(
                                     (String::new(), line.text, 0),
                                     |(text, mut plain_text, prev_i), (i, commentary)| {
                                         log::trace!("{commentary:?} {column} {prev_i} {i}");
-                                        let processing_text = plain_text.split_off(*i - prev_i);
+                                        let processing_text = plain_text.split_off(
+                                            plain_text.char_indices().nth(*i - prev_i).unwrap().0,
+                                        );
                                         log::info!("plain text {plain_text}");
                                         let column_cursor =
                                             if position.1 < *i && sub_position.is_none() {
@@ -767,7 +769,6 @@ fn bidi_inner<'a, T: 'a, U>(
 ) -> U {
     #[derive(PartialEq, PartialOrd)]
     enum CharType {
-
         Ltr,
         Rtl(char),
     }
