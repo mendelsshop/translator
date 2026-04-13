@@ -26,7 +26,10 @@ use ratatui::{
 use ratatui_explorer::{FileExplorer, FileExplorerBuilder};
 use ratatui_textarea::TextArea;
 
-use crate::{converter::parse, structure::Commentary};
+use crate::{
+    converter::parse,
+    structure::{CharLength, Commentary},
+};
 
 fn main() -> Result<()> {
     simple_file_logger::init_logger("translator", simple_file_logger::LogLevel::Trace)?;
@@ -208,7 +211,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     } else if current
                         .text
                         .get(position.0)
-                        .is_some_and(|line| position.1 < line.text.len().saturating_sub(1))
+                        .is_some_and(|line| position.1 < line.len.saturating_sub(1))
                     {
                         log::trace!("l(active)");
                         position.1 += 1;
@@ -256,7 +259,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                             position.1 = (position.1 - 1)
                                 // if cursor was from previous line which was longer we have to go
                                 // back 2 b/c len is 1 based, and we where already at last column
-                                .min(current.text[position.0].text.len().saturating_sub(2));
+                                .min(current.text[position.0].len.saturating_sub(2));
                         }
                         _ => (),
                     }
@@ -351,7 +354,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                             })
                             .sentence_translation
                             .get_or_insert_default();
-                        if position.1 < line.text.len() {
+                        if position.1 < line.len {
                             position.1 = line_position;
                         }
                         *sub_position = Some(CommentaryPosition::Translation(0));
@@ -385,7 +388,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                             })
                             .description_paragraph
                             .get_or_insert_with(|| vec![String::new()]);
-                        if position.1 < line.text.len() {
+                        if position.1 < line.len {
                             position.1 = line_position;
                         }
                         *sub_position = Some(CommentaryPosition::Description(0, 0));
@@ -421,7 +424,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                             .description_paragraph
                             .get_or_insert_default();
                         // only update the position if its less than line length
-                        if position.1 < line.text.len() {
+                        if position.1 < line.len {
                             position.1 = line_position;
                         }
                         *sub_position = Some(CommentaryPosition::Description(0, 0));
@@ -588,7 +591,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
 
 fn get_line_position(position: &(usize, usize), line: &structure::Line, end: bool) -> usize {
     line.words.get_key_value(&position.1).map_or_else(
-        || position_or_text_len(position.1, &line.text),
+        || position_or_text_len(position.1, line),
         |(range, _)| {
             if end { range.end } else { range.start }
         },
@@ -632,7 +635,7 @@ fn render(
                             let column = current
                                 .text
                                 .get(position.0)
-                                .map_or(0, |text| position_or_text_len(position.1, &text.text));
+                                .map_or(0, |text| position_or_text_len(position.1, text));
 
                             let (text, mut plain_text, prev_i) =
                                 line.commentary.iter().sorted_by_key(|x| x.0).fold(
@@ -721,7 +724,7 @@ fn render(
                     })
                     .join("\n");
                 frame.render_widget(
-                    Paragraph::new(text.to_text().unwrap()),
+                    Paragraph::new(text.to_text().unwrap()).right_aligned(),
                     *layout.get(1).expect("could not get area to draw"),
                 );
             }
@@ -742,21 +745,28 @@ fn render(
 fn bidi(plain_text: &str, cursor: Option<usize>) -> String {
     let chars = plain_text.chars();
     if let Some(cursor) = cursor {
+        let mut cursor_placed = false;
         bidi_inner(
             chars.enumerate(),
             |(_, char)| *char,
             |i| {
-                i.flat_map(|(i, char)| {
-                    if i == cursor {
-                        vec![
-                            '\x1b', '[', '4', '7', ';', '5', 'm', char, '\x1b', '[', '4', '7', ';',
-                            '0', 'm',
-                        ]
-                    } else {
-                        vec![char]
-                    }
-                })
-                .collect()
+                let mut s: String = i
+                    .flat_map(|(i, char)| {
+                        if i == cursor {
+                            cursor_placed = true;
+                            vec![
+                                '\x1b', '[', '4', '7', ';', '5', 'm', char, '\x1b', '[', '4', '7',
+                                ';', '0', 'm',
+                            ]
+                        } else {
+                            vec![char]
+                        }
+                    })
+                    .collect();
+                if !cursor_placed {
+                    s.insert_str(0, "\x1b[47;5m \x1b[47;0m");
+                }
+                s
             },
         )
     } else {
@@ -789,8 +799,8 @@ fn bidi_inner<'a, T: 'a, U>(
         .flat_map(|(_, chunk)| chunk))
 }
 
-fn position_or_text_len(position: usize, text: &str) -> usize {
-    (text.len().saturating_sub(1)).min(position)
+fn position_or_text_len(position: usize, text: &impl CharLength) -> usize {
+    (text.char_len().saturating_sub(1)).min(position)
 }
 
 fn cursor_ify_description(
@@ -859,7 +869,7 @@ fn cursor_ify(plain_text: &mut String, mut column: usize, edit: bool, ltr: bool)
         plain_text.len()
     );
     // if cursor was at previous line which was longer "wrap" cursor to current line's len
-    column = position_or_text_len(column, plain_text);
+    column = position_or_text_len(column, &plain_text.as_str());
     if edit {
         column += 1;
     }

@@ -13,6 +13,7 @@ pub struct Text {
 
 #[derive(Debug, Clone)]
 pub struct Line {
+    pub len: usize,
     pub text: String,
     pub words: RangeMap<usize, Word>,
     pub commentary: BTreeMap<usize, Commentary>,
@@ -46,4 +47,24 @@ pub struct Word {
     pub(crate) word: String,
     pub(crate) prounouciation: Option<String>,
     pub(crate) translation: Option<String>,
+}
+pub trait CharLength {
+    fn char_len(&self) -> usize;
+}
+
+impl CharLength for &str {
+    fn char_len(&self) -> usize {
+        self.chars().count()
+    }
+}
+
+impl CharLength for &Line {
+    fn char_len(&self) -> usize {
+        self.len
+    }
+}
+impl CharLength for Line {
+    fn char_len(&self) -> usize {
+        self.len
+    }
 }

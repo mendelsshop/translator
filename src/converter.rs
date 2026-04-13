@@ -9,8 +9,9 @@ pub fn parse(s: &str) -> structure::Text {
         text: s
             .split('\n')
             .map(|text| {
-                let (mut words, state) = text
-                    .char_indices()
+                let char_indices = text.char_indices();
+                let (mut words, state) = char_indices
+                    .clone()
                     .enumerate()
                     .filter(|(_, (_, char))| char.is_alphabetic())
                     .fold(
@@ -51,6 +52,7 @@ pub fn parse(s: &str) -> structure::Text {
                     text: text.to_string(),
                     words,
                     commentary: BTreeMap::new(),
+                    len: char_indices.count(),
                 }
             })
             .collect(),
