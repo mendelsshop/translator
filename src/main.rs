@@ -32,7 +32,7 @@ fn main() -> Result<()> {
     simple_file_logger::init_logger("translator", simple_file_logger::LogLevel::Trace)?;
     // currenlty we only set non bidi mode when we load a file, but for file picking since we rely
     // on ratatui_explorer which does do bidi we rely on the terminal emulator
-    // print!("\x1b[8l\x1b[1 k");
+    print!("\x1b[8l\x1b[1 k");
     color_eyre::install()?;
     let terminal = ratatui::init();
     let app = AppState {
@@ -50,6 +50,8 @@ fn main() -> Result<()> {
     };
     let result = run(terminal, app);
     ratatui::restore();
+
+    print!("\x1b[8h\n\x1b[0 k\n");
     result
 }
 #[derive(Debug, Clone, Default)]
@@ -565,11 +567,11 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }) = event
                         && !file_explorer.current().is_dir
                     {
+                        println!("\x1b[8l\x1b[1 k");
                         let file = read_to_string(file_explorer.current().path.clone()).unwrap();
 
                         let current = parse(&file);
                         // turn of any bidi mode
-                        println!("\x1b[8l\x1b[1 k");
                         app.kind = AppStateKind::Translating {
                             sub_position: None,
                             position: (0, 0),
@@ -689,8 +691,8 @@ fn render(
                                                 "{}{}{}{}{}",
                                                 text,
                                                 if text.is_empty() { "" } else { "\n" },
+                                                translation.map_or(String::new(), |s| s + " "),
                                                 plain_text,
-                                                translation.as_ref().map_or("", String::as_str),
                                                 description
                                             ),
                                             processing_text,
