@@ -189,7 +189,11 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                                     if commentary.description_paragraph.as_ref().is_some_and(
                                         |desc| {
                                             desc.get(*line).is_some_and(|desc_line| {
-                                                *column < desc_line.len().saturating_sub(1)
+                                                *column
+                                                    < desc_line
+                                                        .as_str()
+                                                        .char_len()
+                                                        .saturating_sub(1)
                                             })
                                         },
                                     ) =>
@@ -201,7 +205,10 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                                 }
                                 CommentaryPosition::Translation(column)
                                     if commentary.sentence_translation.as_ref().is_some_and(
-                                        |translation| *column < translation.len().saturating_sub(1),
+                                        |translation| {
+                                            *column
+                                                < translation.as_str().char_len().saturating_sub(1)
+                                        },
                                     ) =>
                                 {
                                     *column += 1;
@@ -479,8 +486,15 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     {
                         let len = translation.len();
                         // editing is considered setting a new cursor position
-                        *i = len.saturating_sub(1);
-                        translation.insert(if translation.is_empty() { 0 } else { *i + 1 }, char);
+                        *i = (*i).min(len.saturating_sub(1));
+                        translation.insert(
+                            if translation.is_empty() {
+                                0
+                            } else {
+                                char_index_to_byte(*i + 1, translation)
+                            },
+                            char,
+                        );
                         if len != 0 {
                             *i += 1;
                         }
@@ -507,8 +521,15 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         let line = &mut description[*line];
                         let len = line.len();
                         // editing is considered setting a new cursor position
-                        *column = len.saturating_sub(1);
-                        line.insert(if line.is_empty() { 0 } else { *column + 1 }, char);
+                        *column = (*column).min(len.saturating_sub(1));
+                        line.insert(
+                            if line.is_empty() {
+                                0
+                            } else {
+                                char_index_to_byte(*column + 1, line)
+                            },
+                            char,
+                        );
                         if len != 0 {
                             *column += 1;
                         }
@@ -641,11 +662,9 @@ fn render(
                                 line.commentary.iter().sorted_by_key(|x| x.0).fold(
                                     (String::new(), line.text, 0),
                                     |(text, mut plain_text, prev_i), (i, commentary)| {
-                                        log::trace!("{commentary:?} {column} {prev_i} {i}");
                                         let processing_text = plain_text.split_off(
                                             plain_text.char_indices().nth(*i - prev_i).unwrap().0,
                                         );
-                                        log::info!("plain text {plain_text}");
                                         let column_cursor =
                                             if position.1 < *i && sub_position.is_none() {
                                                 // this is buggy
@@ -656,7 +675,7 @@ fn render(
                                             } else {
                                                 None
                                             };
-                                        plain_text = bidi(&plain_text, column_cursor);
+                                        plain_text = bidi_hebrew(&plain_text, column_cursor);
                                         let (translation, description) = if *i == position.1
                                             && let Some(sub_position) = sub_position
                                         {
@@ -679,13 +698,21 @@ fn render(
                                             }
                                         } else {
                                             (
-                                                commentary.sentence_translation.clone(),
                                                 commentary
-                                                    .description_paragraph
+                                                    .sentence_translation
                                                     .as_ref()
-                                                    .map_or(String::new(), |text| {
-                                                        format!("\n{}\n", text.join("\n"))
-                                                    }),
+                                                    .map(|t| bidi_english(t, None)),
+                                                commentary.description_paragraph.as_ref().map_or(
+                                                    String::new(),
+                                                    |text| {
+                                                        format!(
+                                                            "\n{}\n",
+                                                            text.iter()
+                                                                .map(|t| bidi_english(t, None))
+                                                                .join("\n")
+                                                        )
+                                                    },
+                                                ),
                                             )
                                         };
 
@@ -694,7 +721,7 @@ fn render(
                                                 "{}{}{}{}{}",
                                                 text,
                                                 if text.is_empty() { "" } else { "\n" },
-                                                translation.map_or(String::new(), |s| s + " "),
+                                                translation.map_or(String::new(), |s| { s + " " }),
                                                 plain_text,
                                                 description
                                             ),
@@ -711,7 +738,7 @@ fn render(
                             } else {
                                 None
                             };
-                            plain_text = bidi(&plain_text, column_cursor);
+                            plain_text = bidi_hebrew(&plain_text, column_cursor);
                             let separator = if text.is_empty() && !plain_text.is_empty() {
                                 ""
                             } else {
@@ -719,12 +746,12 @@ fn render(
                             };
                             text + separator + &plain_text
                         } else {
-                            bidi(&line.text, None)
+                            bidi_hebrew(&line.text, None)
                         }
                     })
                     .join("\n");
                 frame.render_widget(
-                    Paragraph::new(text.to_text().unwrap()).right_aligned(),
+                    Paragraph::new(text.to_text().unwrap()).centered(),
                     *layout.get(1).expect("could not get area to draw"),
                 );
             }
@@ -742,11 +769,11 @@ fn render(
     }
 }
 
-fn bidi(plain_text: &str, cursor: Option<usize>) -> String {
+fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> String {
     let chars = plain_text.chars();
     if let Some(cursor) = cursor {
         let mut cursor_placed = false;
-        bidi_inner(
+        bidi_inner_hebrew(
             chars.enumerate(),
             |(_, char)| *char,
             |i| {
@@ -770,19 +797,27 @@ fn bidi(plain_text: &str, cursor: Option<usize>) -> String {
             },
         )
     } else {
-        bidi_inner(chars, |char| *char, |i| i.collect())
+        bidi_inner_hebrew(chars, |char| *char, |i| i.collect())
     }
 }
 
-fn bidi_inner<'a, T: 'a, U>(
-    plain_text: impl Iterator<Item = T> + 'a,
-    to_char: impl Fn(&T) -> char + 'a + Copy,
+fn bidi_inner_hebrew<T, U>(
+    plain_text: impl Iterator<Item = T>,
+    to_char: impl Fn(&T) -> char + Copy,
     k: impl FnOnce(&mut dyn Iterator<Item = T>) -> U,
 ) -> U {
-    #[derive(PartialEq, PartialOrd)]
     enum CharType {
         Ltr,
         Rtl(char),
+    }
+
+    impl PartialEq for CharType {
+        fn eq(&self, other: &Self) -> bool {
+            match (self, other) {
+                (Self::Rtl(_l0), Self::Rtl(_r0)) => false,
+                _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+            }
+        }
     }
     k(&mut plain_text
         .chunk_by(move |t| {
@@ -810,7 +845,11 @@ fn cursor_ify_description(
     column: usize,
 ) -> (Option<String>, String) {
     (
-        commentary.sentence_translation.clone(),
+        commentary
+            .sentence_translation
+            .as_ref()
+            .map(|t| bidi_english(t, None))
+            ,
         commentary
             .description_paragraph
             .as_ref()
@@ -820,16 +859,13 @@ fn cursor_ify_description(
                     text.iter()
                         .cloned()
                         .enumerate()
-                        .map(|(i, mut s)| {
-                            if i == line {
-                                cursor_ify(
-                                    &mut s,
+                        .map(|(i, s)| {
+                            bidi_english(&s, {
+                                (i == line).then_some((
                                     column,
                                     *translation_state == TranslationState::Editing,
-                                    true,
-                                );
-                            }
-                            s
+                                ))
+                            })
                         })
                         .join("\n")
                 )
@@ -843,53 +879,96 @@ fn cursor_ify_translation(
     column: usize,
 ) -> (Option<String>, String) {
     (
-        commentary
-            .sentence_translation
-            .clone()
-            .map(|mut translation| {
-                cursor_ify(
-                    &mut translation,
-                    column,
-                    *translation_state == TranslationState::Editing,
-                    true,
-                );
-                translation
-            }),
+        commentary.sentence_translation.as_ref().map(|translation| {
+            bidi_english(
+                translation,
+                Some((column, *translation_state == TranslationState::Editing)),
+            )
+        }),
         commentary
             .description_paragraph
             .as_ref()
-            .map_or(String::new(), |text| format!("\n{}\n", text.join("\n"))),
+            .map_or(String::new(), |text| {
+                format!(
+                    "\n{}\n",
+                    text.iter().map(|t| bidi_english(t, None)).join("\n")
+                )
+            }),
     )
 }
 
-fn cursor_ify(plain_text: &mut String, mut column: usize, edit: bool, ltr: bool) {
-    // TODO: if its rtl than there are still numbers, and if its ltr there can be hebrew phrases
-    log::trace!(
-        "cursor {plain_text} with len  {} {column} {edit}",
-        plain_text.len()
-    );
-    // if cursor was at previous line which was longer "wrap" cursor to current line's len
-    column = position_or_text_len(column, &plain_text.as_str());
-    if edit {
-        column += 1;
-    }
-    if plain_text.is_empty() ||
-    // column for edit is always ahead of the current char
-    (edit && column == plain_text.len())
-    {
-        if ltr {
-            plain_text.push_str("\x1b[47;5m \x1b[0m");
-        } else {
-            plain_text.insert_str(0, "\x1b[47;5m \x1b[0m");
+fn char_index_to_byte(index: usize, text: &str) -> usize {
+    text.char_indices()
+        .nth(index)
+        .map_or(text.len(), |(i, _)| i)
+}
+fn bidi_english(plain_text: &str, cursor: Option<(usize, bool)>) -> String {
+    let chars = plain_text.chars();
+    if let Some((column, edit)) = cursor {
+        let column = position_or_text_len(column, &plain_text);
+        if edit {
+            // having cursor after postion is harder with bidi
+            // column += 1;
         }
-    } else {
-        if !ltr {
-            column = plain_text.len().saturating_sub(1) - column;
-        }
-        log::trace!("cursor  with len  {} {column} {edit}", plain_text.len());
-        plain_text.insert_str(column + 1, "\x1b[0m");
-        log::trace!("cursor  {plain_text } {}  ", plain_text.escape_unicode(),);
 
-        plain_text.insert_str(column, "\x1b[47;5m");
+        let mut cursor_placed = false;
+        let mut s: String = bidi_inner_english(
+            chars.enumerate(),
+            |(_, char)| *char,
+            |i| {
+                i.flat_map(|(i, char)| {
+                    if i == column {
+                        cursor_placed = true;
+                        vec![
+                            '\x1b', '[', '4', '7', ';', '5', 'm', char, '\x1b', '[', '4', '7', ';',
+                            '0', 'm',
+                        ]
+                    } else {
+                        vec![char]
+                    }
+                })
+                .collect()
+            },
+        );
+        if !cursor_placed {
+            s.push_str("\x1b[47;5m \x1b[47;0m");
+        }
+        s
+    } else {
+        bidi_inner_english(chars, |char| *char, |i| i.collect())
     }
+}
+
+fn bidi_inner_english<T, U>(
+    plain_text: impl Iterator<Item = T>,
+    to_char: impl Fn(&T) -> char,
+    k: impl FnOnce(&mut dyn Iterator<Item = T>) -> U,
+) -> U {
+    enum CharType {
+        Ltr(char),
+        Rtl,
+    }
+
+    impl PartialEq for CharType {
+        fn eq(&self, other: &Self) -> bool {
+            match (self, other) {
+                (Self::Ltr(_l0), Self::Ltr(_r0)) => false,
+                _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+            }
+        }
+    }
+    k(&mut plain_text
+        .chunk_by(|char| {
+            let char = to_char(char);
+            if char.is_ascii_alphanumeric()
+                || char.is_ascii_whitespace()
+                || char.is_ascii_punctuation()
+            {
+                CharType::Ltr(char)
+            } else {
+                CharType::Rtl
+            }
+        })
+        .into_iter()
+        .flat_map(|chunk| chunk.1.collect_vec().into_iter().rev()))
 }
