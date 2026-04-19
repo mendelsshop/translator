@@ -11,7 +11,7 @@ mod converter;
 mod structure;
 
 use core::fmt;
-use std::{fs::read_to_string, time::Duration};
+use std::{fs::read_to_string, iter, time::Duration};
 
 use ansi_to_tui::IntoText;
 use color_eyre::Result;
@@ -693,6 +693,7 @@ fn render(
                                                         translation_state,
                                                         commentary,
                                                         *column,
+                                                        todo!(),
                                                     )
                                                 }
                                             }
@@ -843,13 +844,12 @@ fn cursor_ify_description(
     commentary: &Commentary,
     line: usize,
     column: usize,
-) -> (Option<String>, String) {
+) -> (Option<Vec<char>>, String) {
     (
         commentary
             .sentence_translation
             .as_ref()
-            .map(|t| bidi_english(t, None))
-            ,
+            .map(|t| bidi_english(t, None)),
         commentary
             .description_paragraph
             .as_ref()
@@ -857,7 +857,6 @@ fn cursor_ify_description(
                 format!(
                     "\n{}\n",
                     text.iter()
-                        .cloned()
                         .enumerate()
                         .map(|(i, s)| {
                             bidi_english(&s, {
@@ -866,6 +865,11 @@ fn cursor_ify_description(
                                     *translation_state == TranslationState::Editing,
                                 ))
                             })
+                            .iter()
+                            .chunks(column)
+                            .into_iter()
+                            .map(|chs| chs.collect::<String>())
+                            .join("\n")
                         })
                         .join("\n")
                 )
@@ -877,22 +881,32 @@ fn cursor_ify_translation(
     translation_state: &TranslationState,
     commentary: &Commentary,
     column: usize,
-) -> (Option<String>, String) {
+    width: usize,
+) -> (Option<Vec<String>>, String) {
     (
         commentary.sentence_translation.as_ref().map(|translation| {
             bidi_english(
                 translation,
                 Some((column, *translation_state == TranslationState::Editing)),
             )
+            .chunks(width / 2)
+            .map(|c| c.iter().collect::<String>())
+            .collect()
         }),
         commentary
             .description_paragraph
             .as_ref()
             .map_or(String::new(), |text| {
-                format!(
-                    "\n{}\n",
-                    text.iter().map(|t| bidi_english(t, None)).join("\n")
-                )
+                let commentary = text
+                    .iter()
+                    .map(|t| {
+                        bidi_english(t, None)
+                            .chunks(width)
+                            .map(|c| c.iter().collect::<String>())
+                            .join("\n")
+                    })
+                    .join("\n");
+                format!("\n{:?}\n", commentary)
             }),
     )
 }
@@ -902,7 +916,7 @@ fn char_index_to_byte(index: usize, text: &str) -> usize {
         .nth(index)
         .map_or(text.len(), |(i, _)| i)
 }
-fn bidi_english(plain_text: &str, cursor: Option<(usize, bool)>) -> String {
+fn bidi_english(plain_text: &str, cursor: Option<(usize, bool)>) -> Vec<char> {
     let chars = plain_text.chars();
     if let Some((column, edit)) = cursor {
         let column = position_or_text_len(column, &plain_text);
@@ -911,14 +925,22 @@ fn bidi_english(plain_text: &str, cursor: Option<(usize, bool)>) -> String {
             // column += 1;
         }
 
-        let mut cursor_placed = false;
-        let mut s: String = bidi_inner_english(
-            chars.enumerate(),
-            |(_, char)| *char,
-            |i| {
-                i.flat_map(|(i, char)| {
+        if column >= plain_text.char_len() {
+            bidi_inner_english(
+                iter::chain(
+                    chars,
+                    [
+                        '\x1b', '[', '4', '7', ';', '5', 'm', ' ', '\x1b', '[', '4', '7', ';', '0',
+                        'm',
+                    ],
+                ),
+                |char| *char,
+            )
+        } else {
+            bidi_inner_english(chars.enumerate(), |(_, char)| *char)
+                .into_iter()
+                .flat_map(|(i, char)| {
                     if i == column {
-                        cursor_placed = true;
                         vec![
                             '\x1b', '[', '4', '7', ';', '5', 'm', char, '\x1b', '[', '4', '7', ';',
                             '0', 'm',
@@ -927,23 +949,14 @@ fn bidi_english(plain_text: &str, cursor: Option<(usize, bool)>) -> String {
                         vec![char]
                     }
                 })
-                .collect()
-            },
-        );
-        if !cursor_placed {
-            s.push_str("\x1b[47;5m \x1b[47;0m");
+                .collect_vec()
         }
-        s
     } else {
-        bidi_inner_english(chars, |char| *char, |i| i.collect())
+        bidi_inner_english(chars, |char| *char)
     }
 }
 
-fn bidi_inner_english<T, U>(
-    plain_text: impl Iterator<Item = T>,
-    to_char: impl Fn(&T) -> char,
-    k: impl FnOnce(&mut dyn Iterator<Item = T>) -> U,
-) -> U {
+fn bidi_inner_english<T>(plain_text: impl Iterator<Item = T>, to_char: fn(&T) -> char) -> Vec<T> {
     enum CharType {
         Ltr(char),
         Rtl,
@@ -957,8 +970,8 @@ fn bidi_inner_english<T, U>(
             }
         }
     }
-    k(&mut plain_text
-        .chunk_by(|char| {
+    plain_text
+        .chunk_by(move |char| {
             let char = to_char(char);
             if char.is_ascii_alphanumeric()
                 || char.is_ascii_whitespace()
@@ -970,5 +983,6 @@ fn bidi_inner_english<T, U>(
             }
         })
         .into_iter()
-        .flat_map(|chunk| chunk.1.collect_vec().into_iter().rev()))
+        .flat_map(|chunk| chunk.1.collect_vec().into_iter().rev())
+        .collect_vec()
 }
