@@ -675,7 +675,7 @@ fn render(
                                             } else {
                                                 None
                                             };
-                                        plain_text = bidi_hebrew(&plain_text, column_cursor);
+                                        let plain_text = bidi_hebrew(&plain_text, column_cursor);
                                         let (translation, description) = if *i == position.1
                                             && let Some(sub_position) = sub_position
                                         {
@@ -686,6 +686,7 @@ fn render(
                                                         commentary,
                                                         *line,
                                                         *column,
+                                                        todo!(),
                                                     )
                                                 }
                                                 CommentaryPosition::Translation(column) => {
@@ -699,31 +700,17 @@ fn render(
                                             }
                                         } else {
                                             (
-                                                commentary
-                                                    .sentence_translation
-                                                    .as_ref()
-                                                    .map(|t| bidi_english(t, None)),
-                                                commentary.description_paragraph.as_ref().map_or(
-                                                    String::new(),
-                                                    |text| {
-                                                        format!(
-                                                            "\n{}\n",
-                                                            text.iter()
-                                                                .map(|t| bidi_english(t, None))
-                                                                .join("\n")
-                                                        )
-                                                    },
-                                                ),
+                                                translation(commentary, todo!()),
+                                                description(commentary, todo!()),
                                             )
                                         };
 
                                         (
                                             format!(
-                                                "{}{}{}{}{}",
+                                                "{}{}{}{}",
                                                 text,
                                                 if text.is_empty() { "" } else { "\n" },
-                                                translation.map_or(String::new(), |s| { s + " " }),
-                                                plain_text,
+                                                translation.map_or(plain_text, |s| { plain_text s + " " }),
                                                 description
                                             ),
                                             processing_text,
@@ -739,7 +726,7 @@ fn render(
                             } else {
                                 None
                             };
-                            plain_text = bidi_hebrew(&plain_text, column_cursor);
+                           let plain_text = bidi_hebrew(&plain_text, column_cursor);
                             let separator = if text.is_empty() && !plain_text.is_empty() {
                                 ""
                             } else {
@@ -770,7 +757,7 @@ fn render(
     }
 }
 
-fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> String {
+fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> Vec<char> {
     let chars = plain_text.chars();
     if let Some(cursor) = cursor {
         let mut cursor_placed = false;
@@ -778,7 +765,7 @@ fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> String {
             chars.enumerate(),
             |(_, char)| *char,
             |i| {
-                let mut s: String = i
+                let mut s: Vec<_> = i
                     .flat_map(|(i, char)| {
                         if i == cursor {
                             cursor_placed = true;
@@ -792,9 +779,15 @@ fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> String {
                     })
                     .collect();
                 if !cursor_placed {
-                    s.insert_str(0, "\x1b[47;5m \x1b[47;0m");
+                    let mut res = vec![
+                        '\x1b', '[', '4', '7', ';', '5', 'm', ' ', '\x1b', '[', '4', '7', ';', '0',
+                        'm',
+                    ];
+                    res.append(&mut s);
+                    res
+                } else {
+                    s
                 }
-                s
             },
         )
     } else {
@@ -844,12 +837,10 @@ fn cursor_ify_description(
     commentary: &Commentary,
     line: usize,
     column: usize,
-) -> (Option<Vec<char>>, String) {
+    width: usize,
+) -> (Option<Vec<String>>, String) {
     (
-        commentary
-            .sentence_translation
-            .as_ref()
-            .map(|t| bidi_english(t, None)),
+        translation(commentary, width),
         commentary
             .description_paragraph
             .as_ref()
@@ -877,6 +868,15 @@ fn cursor_ify_description(
     )
 }
 
+fn translation(commentary: &Commentary, width: usize) -> Option<Vec<String>> {
+    commentary.sentence_translation.as_ref().map(|t| {
+        bidi_english(t, None)
+            .chunks(width / 2)
+            .map(|c| c.iter().collect::<String>())
+            .collect()
+    })
+}
+
 fn cursor_ify_translation(
     translation_state: &TranslationState,
     commentary: &Commentary,
@@ -893,22 +893,26 @@ fn cursor_ify_translation(
             .map(|c| c.iter().collect::<String>())
             .collect()
         }),
-        commentary
-            .description_paragraph
-            .as_ref()
-            .map_or(String::new(), |text| {
-                let commentary = text
-                    .iter()
-                    .map(|t| {
-                        bidi_english(t, None)
-                            .chunks(width)
-                            .map(|c| c.iter().collect::<String>())
-                            .join("\n")
-                    })
-                    .join("\n");
-                format!("\n{:?}\n", commentary)
-            }),
+        description(commentary, width),
     )
+}
+
+fn description(commentary: &Commentary, width: usize) -> String {
+    commentary
+        .description_paragraph
+        .as_ref()
+        .map_or(String::new(), |text| {
+            let commentary = text
+                .iter()
+                .map(|t| {
+                    bidi_english(t, None)
+                        .chunks(width)
+                        .map(|c| c.iter().collect::<String>())
+                        .join("\n")
+                })
+                .join("\n");
+            format!("\n{:?}\n", commentary)
+        })
 }
 
 fn char_index_to_byte(index: usize, text: &str) -> usize {
