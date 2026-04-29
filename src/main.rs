@@ -710,7 +710,38 @@ fn render(
                                                 "{}{}{}{}",
                                                 text,
                                                 if text.is_empty() { "" } else { "\n" },
-                                                translation.map_or(plain_text, |s| { plain_text s + " " }),
+                                                translation.map_or_else(
+                                                    || plain_text
+                                                        .chunks(todo!())
+                                                        .map(|x| x.iter().collect::<String>())
+                                                        .join("\n"),
+                                                    |s| {
+                                                        plain_text
+                                                            .chunks(todo!())
+                                                            .zip_longest(s)
+                                                            .map(|x| match x {
+                                                                itertools::EitherOrBoth::Both(
+                                                                    p,
+                                                                    t,
+                                                                ) => {
+                                                                    t + " "
+                                                                        + &p.iter()
+                                                                            .collect::<String>()
+                                                                }
+                                                                itertools::EitherOrBoth::Left(
+                                                                    p,
+                                                                ) => {
+                                                                    "".repeat(todo!())
+                                                                        + &p.iter()
+                                                                            .collect::<String>()
+                                                                }
+                                                                itertools::EitherOrBoth::Right(
+                                                                    t,
+                                                                ) => t + &"".repeat(todo!()),
+                                                            })
+                                                            .join("\n")
+                                                    }
+                                                ),
                                                 description
                                             ),
                                             processing_text,
@@ -726,7 +757,8 @@ fn render(
                             } else {
                                 None
                             };
-                           let plain_text = bidi_hebrew(&plain_text, column_cursor);
+                            let plain_text: String =
+                                bidi_hebrew(&plain_text, column_cursor).iter().collect();
                             let separator = if text.is_empty() && !plain_text.is_empty() {
                                 ""
                             } else {
@@ -734,7 +766,7 @@ fn render(
                             };
                             text + separator + &plain_text
                         } else {
-                            bidi_hebrew(&line.text, None)
+                            bidi_hebrew(&line.text, None).into_iter().collect()
                         }
                     })
                     .join("\n");
@@ -850,7 +882,7 @@ fn cursor_ify_description(
                     text.iter()
                         .enumerate()
                         .map(|(i, s)| {
-                            bidi_english(&s, {
+                            bidi_english(s, {
                                 (i == line).then_some((
                                     column,
                                     *translation_state == TranslationState::Editing,
@@ -911,7 +943,7 @@ fn description(commentary: &Commentary, width: usize) -> String {
                         .join("\n")
                 })
                 .join("\n");
-            format!("\n{:?}\n", commentary)
+            format!("\n{commentary:?}\n", )
         })
 }
 
