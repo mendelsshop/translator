@@ -240,26 +240,22 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                 ) => {
                     log::trace!("h");
                     match sub_position {
-                        Some(CommentaryPosition::Description(line_pos, column)) => {
-                            if *column > 0 {
-                                let line = &current.text[position.0];
-                                *column = (*column - 1)
-                                    // if cursor was from previous line which was longer we have to go
-                                    // back 2 b/c len is 1 based, and we where already at last column
-                                    .min(
-                                        line.get_commentary_unchecked(position.1)
-                                            .description_paragraph
-                                            .as_ref()
-                                            .unwrap()[*line_pos]
-                                            .len()
-                                            .saturating_sub(2),
-                                    );
-                            }
+                        Some(CommentaryPosition::Description(line_pos, column)) if *column > 0 => {
+                            let line = &current.text[position.0];
+                            *column = (*column - 1)
+                                // if cursor was from previous line which was longer we have to go
+                                // back 2 b/c len is 1 based, and we where already at last column
+                                .min(
+                                    line.get_commentary_unchecked(position.1)
+                                        .description_paragraph
+                                        .as_ref()
+                                        .unwrap()[*line_pos]
+                                        .len()
+                                        .saturating_sub(2),
+                                );
                         }
-                        Some(CommentaryPosition::Translation(column)) => {
-                            if *column > 0 {
-                                *column -= 1;
-                            }
+                        Some(CommentaryPosition::Translation(column)) if *column > 0 => {
+                            *column -= 1;
                         }
                         _ if position.1 > 0 => {
                             log::trace!("h(active)");
@@ -330,7 +326,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         // if editing translation and press j then you exit translation
                         *sub_position = None;
 
-                        log::trace!("j(active)",);
+                        log::trace!("j(active)");
                     }
                 }
                 (
@@ -644,6 +640,7 @@ fn render(
                 sub_position,
                 ..
             } => {
+                let area = *layout.get(1).expect("could not get area to draw");
                 let text = current
                     .text
                     .iter()
@@ -658,7 +655,7 @@ fn render(
                                 .get(position.0)
                                 .map_or(0, |text| position_or_text_len(position.1, text));
 
-                            let (text, mut plain_text, prev_i) =
+                            let (text, plain_text, prev_i) =
                                 line.commentary.iter().sorted_by_key(|x| x.0).fold(
                                     (String::new(), line.text, 0),
                                     |(text, mut plain_text, prev_i), (i, commentary)| {
@@ -686,7 +683,7 @@ fn render(
                                                         commentary,
                                                         *line,
                                                         *column,
-                                                        todo!(),
+                                                        area.width as usize,
                                                     )
                                                 }
                                                 CommentaryPosition::Translation(column) => {
@@ -694,14 +691,14 @@ fn render(
                                                         translation_state,
                                                         commentary,
                                                         *column,
-                                                        todo!(),
+                                                        area.width as usize,
                                                     )
                                                 }
                                             }
                                         } else {
                                             (
-                                                translation(commentary, todo!()),
-                                                description(commentary, todo!()),
+                                                translation(commentary, area.width as usize),
+                                                description(commentary, area.width as usize),
                                             )
                                         };
 
@@ -711,33 +708,28 @@ fn render(
                                                 text,
                                                 if text.is_empty() { "" } else { "\n" },
                                                 translation.map_or_else(
-                                                    || plain_text
-                                                        .chunks(todo!())
-                                                        .map(|x| x.iter().collect::<String>())
-                                                        .join("\n"),
+                                                    || plain_text(area.width as usize).join("\n"),
                                                     |s| {
-                                                        plain_text
-                                                            .chunks(todo!())
+                                                        plain_text(area.width as usize / 2_usize)
+                                                            .iter()
                                                             .zip_longest(s)
                                                             .map(|x| match x {
                                                                 itertools::EitherOrBoth::Both(
                                                                     p,
                                                                     t,
-                                                                ) => {
-                                                                    t + " "
-                                                                        + &p.iter()
-                                                                            .collect::<String>()
-                                                                }
+                                                                ) => t + " " + p,
                                                                 itertools::EitherOrBoth::Left(
                                                                     p,
                                                                 ) => {
-                                                                    "".repeat(todo!())
-                                                                        + &p.iter()
-                                                                            .collect::<String>()
+                                                                    "".repeat(area.width as usize)
+                                                                        + p
                                                                 }
                                                                 itertools::EitherOrBoth::Right(
                                                                     t,
-                                                                ) => t + &"".repeat(todo!()),
+                                                                ) => {
+                                                                    t + &""
+                                                                        .repeat(area.width as usize)
+                                                                }
                                                             })
                                                             .join("\n")
                                                     }
@@ -758,7 +750,8 @@ fn render(
                                 None
                             };
                             let plain_text: String =
-                                bidi_hebrew(&plain_text, column_cursor).iter().collect();
+                                bidi_hebrew(&plain_text, column_cursor)(area.width as usize)
+                                    .join("\n");
                             let separator = if text.is_empty() && !plain_text.is_empty() {
                                 ""
                             } else {
@@ -766,14 +759,11 @@ fn render(
                             };
                             text + separator + &plain_text
                         } else {
-                            bidi_hebrew(&line.text, None).into_iter().collect()
+                            bidi_hebrew(&line.text, None)(area.width as usize).join("\n")
                         }
                     })
                     .join("\n");
-                frame.render_widget(
-                    Paragraph::new(text.to_text().unwrap()).centered(),
-                    *layout.get(1).expect("could not get area to draw"),
-                );
+                frame.render_widget(Paragraph::new(text.to_text().unwrap()), area);
             }
             AppStateKind::New => frame.render_widget_ref(
                 file_explorer.widget(),
@@ -789,41 +779,56 @@ fn render(
     }
 }
 
-fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> Vec<char> {
-    let chars = plain_text.chars();
-    if let Some(cursor) = cursor {
-        let mut cursor_placed = false;
-        bidi_inner_hebrew(
-            chars.enumerate(),
-            |(_, char)| *char,
-            |i| {
-                let mut s: Vec<_> = i
-                    .flat_map(|(i, char)| {
-                        if i == cursor {
-                            cursor_placed = true;
-                            vec![
-                                '\x1b', '[', '4', '7', ';', '5', 'm', char, '\x1b', '[', '4', '7',
-                                ';', '0', 'm',
-                            ]
+fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> impl Fn(usize) -> Vec<String> {
+    move |width: usize| {
+        let chars = plain_text.chars();
+        if let Some(cursor) = cursor {
+            let mut cursor_placed = false;
+            bidi_inner_hebrew(
+                chars.enumerate(),
+                |(_, char)| *char,
+                |i| {
+                    let mut s: Vec<_> = i
+                        .map(|(i, char)| {
+                            if i == cursor {
+                                cursor_placed = true;
+                                vec![
+                                    '\x1b', '[', '4', '7', ';', '5', 'm', char, '\x1b', '[', '4',
+                                    '7', ';', '0', 'm',
+                                ]
+                            } else {
+                                vec![char]
+                            }
+                        })
+                        .chunks(width)
+                        .into_iter()
+                        .map(|x| x.flatten().collect::<String>())
+                        .collect();
+                    if cursor_placed {
+                        s
+                    } else {
+                        let res = "\x1b[47;5m\x1b[47;0m";
+                        if let Some(first) = s.get_mut(0) {
+                            first.insert_str(0, res);
+                            s
                         } else {
-                            vec![char]
+                            vec![res.to_string()]
                         }
-                    })
-                    .collect();
-                if !cursor_placed {
-                    let mut res = vec![
-                        '\x1b', '[', '4', '7', ';', '5', 'm', ' ', '\x1b', '[', '4', '7', ';', '0',
-                        'm',
-                    ];
-                    res.append(&mut s);
-                    res
-                } else {
-                    s
-                }
-            },
-        )
-    } else {
-        bidi_inner_hebrew(chars, |char| *char, |i| i.collect())
+                    }
+                },
+            )
+        } else {
+            bidi_inner_hebrew(
+                chars,
+                |char| *char,
+                |i| {
+                    i.chunks(width)
+                        .into_iter()
+                        .map(std::iter::Iterator::collect::<String>)
+                        .collect()
+                },
+            )
+        }
     }
 }
 
@@ -891,7 +896,7 @@ fn cursor_ify_description(
                             .iter()
                             .chunks(column)
                             .into_iter()
-                            .map(|chs| chs.collect::<String>())
+                            .map(std::iter::Iterator::collect::<String>)
                             .join("\n")
                         })
                         .join("\n")
@@ -943,7 +948,7 @@ fn description(commentary: &Commentary, width: usize) -> String {
                         .join("\n")
                 })
                 .join("\n");
-            format!("\n{commentary:?}\n", )
+            format!("\n{commentary:?}\n")
         })
 }
 
