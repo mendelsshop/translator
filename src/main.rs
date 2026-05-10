@@ -11,7 +11,7 @@ mod converter;
 mod structure;
 
 use core::fmt;
-use std::{fs::read_to_string, iter, time::Duration};
+use std::{fs::read_to_string, time::Duration};
 
 use ansi_to_tui::IntoText;
 use color_eyre::Result;
@@ -807,7 +807,7 @@ fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> impl Fn(usize) -> Vec
                     if cursor_placed {
                         s
                     } else {
-                        let res = "\x1b[47;5m\x1b[47;0m";
+                        let res = "\x1b[47;5m \x1b[47;0m";
                         if let Some(first) = s.get_mut(0) {
                             first.insert_str(0, res);
                             s
@@ -889,16 +889,17 @@ fn cursor_ify_description(
                     text.iter()
                         .enumerate()
                         .map(|(i, s)| {
-                            bidi_english(s, {
-                                (i == line).then_some((
-                                    column,
-                                    *translation_state == TranslationState::Editing,
-                                ))
-                            })
+                            bidi_english(
+                                s,
+                                {
+                                    (i == line).then_some((
+                                        column,
+                                        *translation_state == TranslationState::Editing,
+                                    ))
+                                },
+                                width,
+                            )
                             .iter()
-                            .chunks(column)
-                            .into_iter()
-                            .map(std::iter::Iterator::collect::<String>)
                             .join("\n")
                         })
                         .join("\n")
@@ -908,12 +909,10 @@ fn cursor_ify_description(
 }
 
 fn translation(commentary: &Commentary, width: usize) -> Option<Vec<String>> {
-    commentary.sentence_translation.as_ref().map(|t| {
-        bidi_english(t, None)
-            .chunks(width / 2)
-            .map(|c| c.iter().collect::<String>())
-            .collect()
-    })
+    commentary
+        .sentence_translation
+        .as_ref()
+        .map(|t| bidi_english(t, None, width / 2))
 }
 
 fn cursor_ify_translation(
@@ -927,10 +926,8 @@ fn cursor_ify_translation(
             bidi_english(
                 translation,
                 Some((column, *translation_state == TranslationState::Editing)),
+                width / 2,
             )
-            .chunks(width / 2)
-            .map(|c| c.iter().collect::<String>())
-            .collect()
         }),
         description(commentary, width),
     )
@@ -943,12 +940,7 @@ fn description(commentary: &Commentary, width: usize) -> String {
         .map_or(String::new(), |text| {
             let commentary = text
                 .iter()
-                .map(|t| {
-                    bidi_english(t, None)
-                        .chunks(width)
-                        .map(|c| c.iter().collect::<String>())
-                        .join("\n")
-                })
+                .map(|t| bidi_english(t, None, width).join("\n"))
                 .join("\n");
             format!("\n{commentary:?}\n")
         })
@@ -959,7 +951,7 @@ fn char_index_to_byte(index: usize, text: &str) -> usize {
         .nth(index)
         .map_or(text.len(), |(i, _)| i)
 }
-fn bidi_english(plain_text: &str, cursor: Option<(usize, bool)>) -> Vec<char> {
+fn bidi_english(plain_text: &str, cursor: Option<(usize, bool)>, width: usize) -> Vec<String> {
     let chars = plain_text.chars();
     if let Some((column, edit)) = cursor {
         let column = position_or_text_len(column, &plain_text);
@@ -969,20 +961,20 @@ fn bidi_english(plain_text: &str, cursor: Option<(usize, bool)>) -> Vec<char> {
         }
 
         if column >= plain_text.char_len() {
-            bidi_inner_english(
-                iter::chain(
-                    chars,
-                    [
-                        '\x1b', '[', '4', '7', ';', '5', 'm', ' ', '\x1b', '[', '4', '7', ';', '0',
-                        'm',
-                    ],
-                ),
-                |char| *char,
-            )
+            let mut res: Vec<_> = bidi_inner_english(chars, |char| *char)
+                .chunks(width)
+                .map(|x| x.iter().collect::<String>())
+                .collect();
+            if let Some(line) = res.last_mut() {
+                line.push_str("\x1b[47;5m \x1b[47;0m");
+                res
+            } else {
+                vec!["\x1b[47;5m \x1b[47;0m".to_string()]
+            }
         } else {
             bidi_inner_english(chars.enumerate(), |(_, char)| *char)
                 .into_iter()
-                .flat_map(|(i, char)| {
+                .map(|(i, char)| {
                     if i == column {
                         vec![
                             '\x1b', '[', '4', '7', ';', '5', 'm', char, '\x1b', '[', '4', '7', ';',
@@ -992,10 +984,17 @@ fn bidi_english(plain_text: &str, cursor: Option<(usize, bool)>) -> Vec<char> {
                         vec![char]
                     }
                 })
-                .collect_vec()
+                .chunks(width)
+                .into_iter()
+                .map(|x| x.flatten().collect::<String>())
+                .collect()
         }
     } else {
         bidi_inner_english(chars, |char| *char)
+            .chunks(width)
+            .map(std::iter::IntoIterator::into_iter)
+            .map(std::iter::Iterator::collect::<String>)
+            .collect()
     }
 }
 
