@@ -782,7 +782,7 @@ fn render(
 fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> impl Fn(usize) -> Vec<String> {
     move |width: usize| {
         let chars = plain_text.chars();
-        if let Some(cursor) = cursor {
+        let mut lines = if let Some(cursor) = cursor {
             let mut cursor_placed = false;
             bidi_inner_hebrew(
                 chars.enumerate(),
@@ -828,7 +828,9 @@ fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> impl Fn(usize) -> Vec
                         .collect()
                 },
             )
-        }
+        };
+        lines.reverse();
+        lines
     }
 }
 
