@@ -533,6 +533,66 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                 }
                 (
                     Event::Key(KeyEvent {
+                        code: KeyCode::Backspace,
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Editing,
+                        sub_position: Some(CommentaryPosition::Translation(i)),
+                        position,
+                        current,
+                        ..
+                    },
+                ) => {
+                    if let Some(translation) = &mut current.text[position.0]
+                        .commentary
+                        .get_mut(&(position.1))
+                        .unwrap()
+                        .sentence_translation
+                        && !translation.is_empty()
+                    {
+                        let len = translation.len();
+                        // editing is considered setting a new cursor position
+                        *i = (*i).min(len.saturating_sub(1));
+                        translation.remove(char_index_to_byte(*i, translation));
+                        *i = i.saturating_sub(1);
+                    }
+                }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Backspace,
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Editing,
+                        sub_position: Some(CommentaryPosition::Description(line_number, column)),
+                        position,
+                        current,
+                        ..
+                    },
+                ) => {
+                    if let Some(description) = &mut current.text[position.0]
+                        .get_commentary_mut(position.1)
+                        .unwrap()
+                        .description_paragraph
+                    {
+                        let line = &mut description[*line_number];
+                        let len = line.len();
+
+                        if len == 0 && *line_number != 0 {
+                            current.text.remove(*line_number);
+                            *line_number = line_number.saturating_sub(1);
+                            // TODO: reset column to be at end of new line
+                        } else if len > 0 {
+                            // editing is considered setting a new cursor position
+                            *column = (*column).min(len.saturating_sub(1));
+                            line.remove(char_index_to_byte(*column, line));
+                            *column = column.saturating_sub(1);
+                        }
+                    }
+                }
+                (
+                    Event::Key(KeyEvent {
                         code: KeyCode::Enter,
                         ..
                     }),

@@ -12,5 +12,5 @@ log = "0.4.29"
 rangemap = "1.7.1"
 ratatui = { version = "0.30", features = ["unstable-widget-ref"] }
 ratatui-explorer = "0.3.0"
-ratatui-textarea = "0.8.0"
+ratatui-textarea = "0.9.1"
 simple_file_logger = "0.4.2"
