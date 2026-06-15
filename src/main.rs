@@ -81,12 +81,10 @@ impl AppState<'_> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum TranslationState {
     Editing,
-    // cursor can only be used for editing if they are on the same line
-    Visual(Cursor),
     #[default]
     Normal,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum CommentaryPosition {
     Description(usize, usize),
     Translation(usize),
@@ -98,6 +96,7 @@ pub enum AppStateKind {
     Translating {
         position: Cursor,
 
+        end_position: Option<Cursor>,
         command_buffer: String,
         current: structure::Text,
         translation_state: TranslationState,
@@ -177,11 +176,13 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                        position: (position, sub_position),
+                        position,
                         current,
+                        end_position,
                         ..
                     },
                 ) => {
+                    let (position, sub_position) = end_position.as_mut().unwrap_or(position);
                     log::trace!("l");
                     if let Some(sub_position) = sub_position {
                         current.text[position.0]
@@ -234,12 +235,14 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                        position: (position, sub_position),
+                        position,
+                        end_position,
                         current,
                         ..
                     },
                 ) => {
                     log::trace!("h");
+                    let (position, sub_position) = end_position.as_mut().unwrap_or(position);
                     match sub_position {
                         Some(CommentaryPosition::Description(line_pos, column)) if *column > 0 => {
                             let line = &current.text[position.0];
@@ -275,11 +278,13 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                        position: (position, sub_position),
+                        position,
+                        end_position,
                         ..
                     },
                 ) => {
                     log::trace!("k");
+                    let (position, sub_position) = end_position.as_mut().unwrap_or(position);
                     if let Some(CommentaryPosition::Description(line, _)) = sub_position {
                         if *line > 0 {
                             *line -= 1;
@@ -300,11 +305,13 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         current,
-                        position: (position, sub_position),
+                        position,
+                        end_position,
                         ..
                     },
                 ) => {
                     log::trace!("j");
+                    let (position, sub_position) = end_position.as_mut().unwrap_or(position);
                     if let Some(CommentaryPosition::Description(line_pos, _)) = sub_position {
                         // TODO: maybe don't index and actually check that those indices exist
                         let line = &current.text[position.0];
@@ -646,6 +653,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         // turn of any bidi mode
                         app.kind = AppStateKind::Translating {
                             position: ((0, 0), None),
+                            end_position: None,
                             current,
                             command_buffer: String::new(),
                             translation_state: TranslationState::Normal,
