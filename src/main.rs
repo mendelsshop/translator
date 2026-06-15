@@ -81,20 +81,23 @@ impl AppState<'_> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum TranslationState {
     Editing,
+    // cursor can only be used for editing if they are on the same line
+    Visual(Cursor),
     #[default]
     Normal,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommentaryPosition {
     Description(usize, usize),
     Translation(usize),
 }
+type Cursor = ((usize, usize), Option<CommentaryPosition>);
+
 #[derive(Debug, Clone, Default)]
 pub enum AppStateKind {
     Translating {
-        position: (usize, usize),
+        position: Cursor,
 
-        sub_position: Option<CommentaryPosition>,
         command_buffer: String,
         current: structure::Text,
         translation_state: TranslationState,
@@ -174,9 +177,8 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                        position,
+                        position: (position, sub_position),
                         current,
-                        sub_position,
                         ..
                     },
                 ) => {
@@ -232,8 +234,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                        position,
-                        sub_position,
+                        position: (position, sub_position),
                         current,
                         ..
                     },
@@ -274,8 +275,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                        position,
-                        sub_position,
+                        position: (position, sub_position),
                         ..
                     },
                 ) => {
@@ -299,9 +299,8 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                        position,
                         current,
-                        sub_position,
+                        position: (position, sub_position),
                         ..
                     },
                 ) => {
@@ -336,10 +335,9 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                        position,
                         current,
                         command_buffer,
-                        sub_position,
+                        position: (position, sub_position),
                         ..
                     },
                 ) => {
@@ -370,9 +368,8 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                        position,
                         current,
-                        sub_position,
+                        position: (position, sub_position),
                         command_buffer,
                         ..
                     },
@@ -405,8 +402,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                        position,
-                        sub_position,
+                        position: (position, sub_position),
                         current,
                         command_buffer,
                         ..
@@ -439,7 +435,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
-                        sub_position,
+                        position: (_position, sub_position),
                         command_buffer,
                         ..
                     },
@@ -468,8 +464,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Editing,
-                        sub_position: Some(CommentaryPosition::Translation(i)),
-                        position,
+                        position: (position, Some(CommentaryPosition::Translation(i))),
                         current,
                         ..
                     },
@@ -503,8 +498,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Editing,
-                        sub_position: Some(CommentaryPosition::Description(line, column)),
-                        position,
+                        position: (position, Some(CommentaryPosition::Description(line, column))),
                         current,
                         ..
                     },
@@ -538,8 +532,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Editing,
-                        sub_position: Some(CommentaryPosition::Translation(i)),
-                        position,
+                        position: (position, Some(CommentaryPosition::Translation(i))),
                         current,
                         ..
                     },
@@ -565,8 +558,8 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Editing,
-                        sub_position: Some(CommentaryPosition::Description(line_number, column)),
-                        position,
+                        position:
+                            (position, Some(CommentaryPosition::Description(line_number, column))),
                         current,
                         ..
                     },
@@ -598,8 +591,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: TranslationState::Editing,
-                        sub_position: Some(CommentaryPosition::Description(line, column)),
-                        position,
+                        position: (position, Some(CommentaryPosition::Description(line, column))),
                         current,
                         ..
                     },
@@ -622,7 +614,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     }),
                     AppStateKind::Translating {
                         translation_state: translation_state @ TranslationState::Normal,
-                        sub_position: Some(_),
+                        position: (_, Some(_)),
                         ..
                     },
                 ) => *translation_state = TranslationState::Editing,
@@ -653,8 +645,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         let current = parse(&file);
                         // turn of any bidi mode
                         app.kind = AppStateKind::Translating {
-                            sub_position: None,
-                            position: (0, 0),
+                            position: ((0, 0), None),
                             current,
                             command_buffer: String::new(),
                             translation_state: TranslationState::Normal,
@@ -696,8 +687,7 @@ fn render(
             AppStateKind::Translating {
                 current,
                 translation_state,
-                position,
-                sub_position,
+                position: (position, sub_position),
                 ..
             } => {
                 let area = *layout.get(1).expect("could not get area to draw");
