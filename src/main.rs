@@ -182,7 +182,10 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         ..
                     },
                 ) => {
-                    let (position, sub_position) = end_position.as_mut().unwrap_or(position);
+                    let (position, sub_position) = end_position
+                        .as_mut()
+                        .filter(|end| end.0 == position.0)
+                        .unwrap_or(position);
                     log::trace!("l");
                     if let Some(sub_position) = sub_position {
                         current.text[position.0]
@@ -242,7 +245,10 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     },
                 ) => {
                     log::trace!("h");
-                    let (position, sub_position) = end_position.as_mut().unwrap_or(position);
+                    let (position, sub_position) = end_position
+                        .as_mut()
+                        .filter(|end| end.0 == position.0)
+                        .unwrap_or(position);
                     match sub_position {
                         Some(CommentaryPosition::Description(line_pos, column)) if *column > 0 => {
                             let line = &current.text[position.0];
@@ -284,7 +290,10 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     },
                 ) => {
                     log::trace!("k");
-                    let (position, sub_position) = end_position.as_mut().unwrap_or(position);
+                    let (position, sub_position) = end_position
+                        .as_mut()
+                        .filter(|end| end.0 == position.0)
+                        .unwrap_or(position);
                     if let Some(CommentaryPosition::Description(line, _)) = sub_position {
                         if *line > 0 {
                             *line -= 1;
@@ -311,7 +320,10 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     },
                 ) => {
                     log::trace!("j");
-                    let (position, sub_position) = end_position.as_mut().unwrap_or(position);
+                    let (position, sub_position) = end_position
+                        .as_mut()
+                        .filter(|end| end.0 == position.0)
+                        .unwrap_or(position);
                     if let Some(CommentaryPosition::Description(line_pos, _)) = sub_position {
                         // TODO: maybe don't index and actually check that those indices exist
                         let line = &current.text[position.0];
@@ -335,6 +347,48 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         log::trace!("j(active)");
                     }
                 }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('v'),
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Normal,
+                        position: (position, Some(sub_position)),
+                        end_position,
+                        ..
+                    },
+                ) => *end_position = Some((*position, Some(*sub_position))),
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('v'),
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Normal,
+                        position: (_position, None),
+
+                        end_position: _,
+                        current: _,
+                        ..
+                    },
+                ) => {
+
+                    // TODO: if on line with commentary jump to that and start visual
+                }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Up | KeyCode::Down | KeyCode::Right | KeyCode::Left,
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: TranslationState::Editing,
+                        current: _,
+                        command_buffer: _,
+                        position: (_position, _sub_position),
+                        ..
+                    },
+                ) => {}
                 (
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('t'),
@@ -696,6 +750,7 @@ fn render(
                 current,
                 translation_state,
                 position: (position, sub_position),
+                end_position,
                 ..
             } => {
                 let area = *layout.get(1).expect("could not get area to draw");
@@ -749,6 +804,14 @@ fn render(
                                                         translation_state,
                                                         commentary,
                                                         *column,
+                                                        end_position.and_then(|(_, end)| {
+                                                            end.and_then(|end| match end {
+                                                                CommentaryPosition::Translation(
+                                                                    end,
+                                                                ) => Some(end),
+                                                                _ => None,
+                                                            })
+                                                        }),
                                                         area.width as usize,
                                                     )
                                                 }
@@ -1388,7 +1451,8 @@ fn cursor_ify_description(
                                 s,
                                 {
                                     (i == line).then_some((
-                                        column,
+                                        Some(column),
+                                        None,
                                         *translation_state == TranslationState::Editing,
                                     ))
                                 },
@@ -1414,13 +1478,18 @@ fn cursor_ify_translation(
     translation_state: &TranslationState,
     commentary: &Commentary,
     column: usize,
+    end_column: Option<usize>,
     width: usize,
 ) -> (Option<Vec<String>>, String) {
     (
         commentary.sentence_translation.as_ref().map(|translation| {
             bidi_english(
                 translation,
-                Some((column, *translation_state == TranslationState::Editing)),
+                Some((
+                    Some(column),
+                    end_column,
+                    *translation_state == TranslationState::Editing,
+                )),
                 width / 2,
             )
         }),
@@ -1446,35 +1515,49 @@ fn char_index_to_byte(index: usize, text: &str) -> usize {
         .nth(index)
         .map_or(text.len(), |(i, _)| i)
 }
-fn bidi_english(plain_text: &str, cursor: Option<(usize, bool)>, width: usize) -> Vec<String> {
+fn bidi_english(
+    plain_text: &str,
+    cursor: Option<(Option<usize>, Option<usize>, bool)>,
+    width: usize,
+) -> Vec<String> {
     let chars = plain_text.chars();
-    if let Some((column, edit)) = cursor {
-        let column = position_or_text_len(column, &plain_text);
+    if let Some((column, _end_column, edit)) = cursor {
+        let column = column.map(|column| position_or_text_len(column, &plain_text));
+        let end_column = column.map(|column| position_or_text_len(column, &plain_text));
         if edit {
             // having cursor after postion is harder with bidi
             // column += 1;
         }
 
-        if column >= plain_text.char_len() {
-            let mut res: Vec<_> = bidi_inner_english(chars, |char| *char)
-                .chunks(width)
-                .map(|x| x.iter().collect::<String>())
-                .collect();
-            if let Some(line) = res.last_mut() {
-                line.push_str("\x1b[47;5m \x1b[47;0m");
-                res
-            } else {
-                vec!["\x1b[47;5m \x1b[47;0m".to_string()]
-            }
-        } else {
+        // TODO: how to handle off bounds cursors
+        //
+        // if end_column.is_some_and(|end_column| end_column >= plain_text.char_len()) {
+        //     let mut res: Vec<_> = bidi_inner_english(chars, |char| *char)
+        //         .chunks(width)
+        //         .map(|x| x.iter().collect::<String>())
+        //         .collect();
+        //     if let Some(line) = res.last_mut() {
+        //         line.push_str("\x1b[47;5m \x1b[47;0m");
+        //         res
+        //     } else {
+        //         vec!["\x1b[47;5m \x1b[47;0m".to_string()]
+        //     }
+        // } else
+        {
             bidi_inner_english(chars.enumerate(), |(_, char)| *char)
                 .into_iter()
                 .map(|(i, char)| {
-                    if i == column {
+                    if column.is_some_and(|end_column| end_column == i)
+                        && end_column.is_some_and(|end_column| end_column == i)
+                    {
                         vec![
-                            '\x1b', '[', '4', '7', ';', '5', 'm', char, '\x1b', '[', '4', '7', ';',
-                            '0', 'm',
+                            '\x1b', '[', '4', '7', ';', '5', 'm', '\x1b', '[', '4', '7', ';', '0',
+                            'm',
                         ]
+                    } else if column.is_some_and(|end_column| end_column == i) {
+                        vec![char, '\x1b', '[', '4', '7', ';', '0', 'm']
+                    } else if end_column.is_some_and(|end_column| end_column == i) {
+                        vec!['\x1b', '[', '4', '7', ';', '5', 'm', char]
                     } else {
                         vec![char]
                     }
