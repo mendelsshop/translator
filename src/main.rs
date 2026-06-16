@@ -1521,9 +1521,9 @@ fn bidi_english(
     width: usize,
 ) -> Vec<String> {
     let chars = plain_text.chars();
-    if let Some((column, _end_column, edit)) = cursor {
+    if let Some((column, end_column, edit)) = cursor {
         let column = column.map(|column| position_or_text_len(column, &plain_text));
-        let end_column = column.map(|column| position_or_text_len(column, &plain_text));
+        let end_column = end_column.map(|column| position_or_text_len(column, &plain_text));
         if edit {
             // having cursor after postion is harder with bidi
             // column += 1;
