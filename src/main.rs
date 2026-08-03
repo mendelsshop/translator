@@ -11,7 +11,7 @@ mod converter;
 mod structure;
 
 use core::fmt;
-use std::{fs::read_to_string, time::Duration};
+use std::{fs::read_to_string, io::Write, time::Duration};
 
 use ansi_to_tui::IntoText;
 use color_eyre::Result;
@@ -83,6 +83,7 @@ pub enum TranslationState {
     Editing,
     #[default]
     Normal,
+    Command,
 }
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum CommentaryPosition {
@@ -100,6 +101,7 @@ pub enum AppStateKind {
         command_buffer: String,
         current: structure::Text,
         translation_state: TranslationState,
+        file: Option<String>,
     },
     #[default]
     New,
@@ -369,9 +371,6 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     AppStateKind::Translating {
                         translation_state: TranslationState::Normal,
                         position: (_position, None),
-
-                        end_position: _,
-                        current: _,
                         ..
                     },
                 ) => {
@@ -504,22 +503,23 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     },
                 ) => {
                     log::info!("esc");
-                    if command_buffer == " " {
-                        command_buffer.clear();
-                        *sub_position = None;
-                    }
+                    command_buffer.clear();
+                    *sub_position = None;
                 }
                 (
                     Event::Key(KeyEvent {
                         code: KeyCode::Esc, ..
                     }),
                     AppStateKind::Translating {
-                        translation_state: translation_state @ TranslationState::Editing,
-                        position: _,
-                        current: _,
+                        translation_state:
+                            translation_state @ (TranslationState::Editing | TranslationState::Command),
+                        command_buffer,
                         ..
                     },
-                ) => *translation_state = TranslationState::Normal,
+                ) => {
+                    command_buffer.clear();
+                    *translation_state = TranslationState::Normal;
+                }
                 (
                     Event::Key(KeyEvent {
                         code: KeyCode::Char(char),
@@ -647,6 +647,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         }
                     }
                 }
+
                 (
                     Event::Key(KeyEvent {
                         code: KeyCode::Enter,
@@ -669,6 +670,65 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         // editing is considered setting a new cursor position
                         *column = 0;
                     }
+                }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char(':'),
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: translation_state @ TranslationState::Normal,
+                        command_buffer,
+                        ..
+                    },
+                ) => {
+                    *translation_state = TranslationState::Editing;
+                    command_buffer.clear();
+                }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char(char),
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: _translation_state @ TranslationState::Command,
+                        command_buffer,
+                        ..
+                    },
+                ) => {
+                    command_buffer.push(char);
+                }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Enter,
+                        ..
+                    }),
+                    AppStateKind::Translating {
+                        translation_state: translation_state @ TranslationState::Command,
+                        command_buffer,
+                        file,
+                        ..
+                    },
+                ) => {
+                    let mut buffer = command_buffer.split_whitespace();
+                    let first = buffer.next().unwrap();
+                    if first == "w"
+                        && let Some(file) = match buffer.next() {
+                            Some(file) => Some(file),
+                            None => file.as_deref(),
+                        } {
+                            let _file = std::fs::OpenOptions::new()
+                                .create(true)
+                                .write(true)
+                                .open(file)
+                                .unwrap();
+                            *translation_state = TranslationState::Normal;
+                            command_buffer.clear();
+                            log::warn!("saveing");
+
+                            // TODO: how should we format save file
+                            // file.write(current);
+                        }
                 }
                 (
                     Event::Key(KeyEvent {
@@ -712,6 +772,11 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                             end_position: None,
                             current,
                             command_buffer: String::new(),
+                            file: file_explorer
+                                .current()
+                                .path
+                                .file_name()
+                                .and_then(|f| f.to_str().map(|p| format!("{p}.t"))),
                             translation_state: TranslationState::Normal,
                         };
                     }
@@ -796,8 +861,16 @@ fn render(
                                                     cursor_ify_description(
                                                         translation_state,
                                                         commentary,
-                                                        *line,
-                                                        *column,
+                                                        (*line, *column),
+                                                        end_position.and_then(|(_, end)| {
+                                                            end.and_then(|end| match end {
+                                                                CommentaryPosition::Description(
+                                                                    line,
+                                                                    column,
+                                                                ) => Some((line, column)),
+                                                                _ => None,
+                                                            })
+                                                        }),
                                                         area.width as usize,
                                                     )
                                                 }
@@ -1434,10 +1507,11 @@ fn position_or_text_len(position: usize, text: &impl CharLength) -> usize {
 fn cursor_ify_description(
     translation_state: &TranslationState,
     commentary: &Commentary,
-    line: usize,
-    column: usize,
+    cursor: (usize, usize),
+    end_cursor: Option<(usize, usize)>,
     width: usize,
 ) -> (Option<Vec<String>>, String) {
+    let (line, column): (usize, usize) = cursor;
     (
         translation(commentary, width),
         commentary
@@ -1452,9 +1526,13 @@ fn cursor_ify_description(
                             bidi_english(
                                 s,
                                 {
-                                    (i == line).then_some((
+                                    (i == line
+                                        || end_cursor.is_some_and(|end_line| {
+                                            (line..end_line.0).contains(&i)
+                                        }))
+                                    .then_some((
                                         Some(column),
-                                        None,
+                                        end_cursor.map(|c| c.1),
                                         *translation_state == TranslationState::Editing,
                                     ))
                                 },
