@@ -163,11 +163,13 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char('q'),
                         ..
                     }),
-                    _,
+                    AppStateKind::New
+                    | AppStateKind::Translating {
+                        translation_state: TranslationState::Normal,
+                        ..
+                    },
                 ) => {
-                    if app.in_normal_mode() {
-                        break Ok(());
-                    }
+                    break Ok(());
                 }
                 (
                     Event::Key(KeyEvent {
