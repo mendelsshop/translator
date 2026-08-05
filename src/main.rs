@@ -11,7 +11,7 @@ mod converter;
 mod structure;
 
 use core::fmt;
-use std::{fs::read_to_string, io::Write, time::Duration};
+use std::{fs::read_to_string, time::Duration};
 
 use ansi_to_tui::IntoText;
 use color_eyre::Result;
@@ -23,61 +23,117 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, FrameExt, Paragraph},
 };
-use ratatui_explorer::{FileExplorer, FileExplorerBuilder};
+use ratatui_explorer::FileExplorerBuilder;
 use ratatui_textarea::TextArea;
 
-use crate::{
-    converter::parse,
-    structure::{CharLength, Commentary},
-};
+use crate::structure::{CharLength, Commentary};
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+pub struct Args {
+    #[arg(short, long)]
+    create: bool,
+    file: Option<String>,
+}
 
 fn main() -> Result<()> {
     simple_file_logger::init_logger("translator", simple_file_logger::LogLevel::Trace)?;
+    let args = Args::parse();
+    log::info!("{args:?}");
     // currenlty we only set non bidi mode when we load a file, but for file picking since we rely
     // on ratatui_explorer which does do bidi we rely on the terminal emulator
     print!("\x1b[8l\x1b[1 k");
     color_eyre::install()?;
-    let terminal = ratatui::init();
-    let app = AppState {
-        input_buffer: {
-            let mut area = TextArea::default();
-            // area.set_cursor_line_style(
-            //     area.cursor_line_style()
-            //         .remove_modifier(Modifier::UNDERLINED),
-            // );
-            // area.set_cursor_style(area.cursor_style().remove_modifier(Modifier::REVERSED));
-            area.set_block(Block::default().borders(Borders::TOP));
-            area
-        },
-        ..Default::default()
+    let mut terminal = ratatui::init();
+    let input_buffer = {
+        let mut area = TextArea::default();
+        // area.set_cursor_line_style(
+        //     area.cursor_line_style()
+        //         .remove_modifier(Modifier::UNDERLINED),
+        // );
+        // area.set_cursor_style(area.cursor_style().remove_modifier(Modifier::REVERSED));
+        area.set_block(Block::default().borders(Borders::TOP));
+        area
     };
-    let result = run(terminal, app);
+    let file = if let Some(file) = args.file {
+        file
+    } else {
+        let Some(file) = run_picker(&mut terminal)? else {
+            return Ok(());
+        };
+        file
+    };
+    let (text, file) = load_file(&file, args.create);
+    let result = run(
+        terminal,
+        AppState {
+            kind: TranslatingState {
+                position: Default::default(),
+                end_position: Default::default(),
+                command_buffer: String::new(),
+                current: text,
+                translation_state: Default::default(),
+                file,
+            },
+            status: Default::default(),
+            input_buffer,
+        },
+    );
     ratatui::restore();
 
     print!("\x1b[8h\n\x1b[0 k\n");
     result
 }
-#[derive(Debug, Clone, Default)]
+
+fn load_file(file: &str, create: bool) -> (structure::Text, String) {
+    if create {
+        let contents = read_to_string(file).unwrap();
+        (converter::parse(&contents), format!("{file}.t"))
+    } else {
+        todo!()
+    }
+}
+
+fn run_picker(terminal: &mut DefaultTerminal) -> Result<Option<String>> {
+    let theme = ratatui_explorer::Theme::default().add_default_title();
+    let mut file_explorer = FileExplorerBuilder::build_with_theme(theme).unwrap();
+    loop {
+        if true || event::poll(Duration::from_millis(500)).unwrap() {
+            let event = event::read()?;
+            if let Event::Key(KeyEvent {
+                code: KeyCode::Char('q'),
+                ..
+            }) = event
+            {
+                break Ok(None);
+            }
+            {}
+            terminal.draw(|frame| {
+                frame.render_widget_ref(file_explorer.widget(), frame.area());
+            })?;
+            file_explorer.handle(&event)?;
+            if let Event::Key(KeyEvent {
+                code: KeyCode::Enter,
+                ..
+            }) = event
+                && !file_explorer.current().is_dir
+            {
+                println!("\x1b[8l\x1b[1 k");
+                let file = read_to_string(file_explorer.current().path.clone()).unwrap();
+
+                break Ok(Some(file));
+            }
+        }
+    }
+}
+#[derive(Debug)]
 pub struct AppState<'a> {
-    kind: AppStateKind,
+    kind: TranslatingState,
 
     status: Status,
     pub input_buffer: TextArea<'a>,
 }
-impl AppState<'_> {
-    const fn in_editing_mode(&self) -> bool {
-        matches!(
-            self.kind,
-            AppStateKind::Translating {
-                translation_state: TranslationState::Editing,
-                ..
-            }
-        )
-    }
-    const fn in_normal_mode(&self) -> bool {
-        !self.in_editing_mode()
-    }
-}
+impl AppState<'_> {}
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum TranslationState {
     Editing,
@@ -92,17 +148,19 @@ pub enum CommentaryPosition {
 }
 type Cursor = ((usize, usize), Option<CommentaryPosition>);
 
+#[derive(Debug, Clone)]
+pub struct TranslatingState {
+    pub position: Cursor,
+    pub end_position: Option<Cursor>,
+    pub command_buffer: String,
+    pub current: structure::Text,
+    pub translation_state: TranslationState,
+    pub file: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub enum AppStateKind {
-    Translating {
-        position: Cursor,
-
-        end_position: Option<Cursor>,
-        command_buffer: String,
-        current: structure::Text,
-        translation_state: TranslationState,
-        file: Option<String>,
-    },
+    TranslatingState(TranslatingState),
     #[default]
     New,
 }
@@ -149,13 +207,9 @@ fn draw_status<'a>(status: &Status) -> Paragraph<'a> {
                 .style(Style::default().fg(Color::White)),
         )
 }
-fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
-    let mut app = app;
-
-    let theme = ratatui_explorer::Theme::default().add_default_title();
-    let mut file_explorer = FileExplorerBuilder::build_with_theme(theme).unwrap();
+fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
     loop {
-        terminal.draw(render(&mut app, &file_explorer))?;
+        terminal.draw(render(&mut app))?;
         // polling slows down the input too much either don't poll or tune the polling rate
         if true || event::poll(Duration::from_millis(500)).unwrap() {
             let event = event::read()?;
@@ -165,8 +219,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char('q'),
                         ..
                     }),
-                    AppStateKind::New
-                    | AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         ..
                     },
@@ -178,7 +231,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char('l'),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         position,
                         current,
@@ -240,7 +293,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char('h'),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         position,
                         end_position,
@@ -286,7 +339,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char('k'),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         position,
                         end_position,
@@ -315,7 +368,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char('j'),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         current,
                         position,
@@ -356,7 +409,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char('v'),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         position: (position, Some(sub_position)),
                         end_position,
@@ -368,7 +421,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char('v'),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         position: (_position, None),
                         ..
@@ -382,7 +435,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Up | KeyCode::Down | KeyCode::Right | KeyCode::Left,
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Editing,
                         current: _,
                         command_buffer: _,
@@ -395,7 +448,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char('t'),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         current,
                         command_buffer,
@@ -428,7 +481,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char('d'),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         current,
                         position: (position, sub_position),
@@ -462,7 +515,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char('D'),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         position: (position, sub_position),
                         current,
@@ -495,7 +548,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     Event::Key(KeyEvent {
                         code: KeyCode::Esc, ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         position: (_position, sub_position),
                         command_buffer,
@@ -510,7 +563,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     Event::Key(KeyEvent {
                         code: KeyCode::Esc, ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state:
                             translation_state @ (TranslationState::Editing | TranslationState::Command),
                         command_buffer,
@@ -525,7 +578,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char(char),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Editing,
                         position: (position, Some(CommentaryPosition::Translation(i))),
                         current,
@@ -559,7 +612,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char(char),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Editing,
                         position: (position, Some(CommentaryPosition::Description(line, column))),
                         current,
@@ -593,7 +646,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Backspace,
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Editing,
                         position: (position, Some(CommentaryPosition::Translation(i))),
                         current,
@@ -619,7 +672,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Backspace,
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Editing,
                         position:
                             (position, Some(CommentaryPosition::Description(line_number, column))),
@@ -653,7 +706,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Enter,
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Editing,
                         position: (position, Some(CommentaryPosition::Description(line, column))),
                         current,
@@ -676,7 +729,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char(':'),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: translation_state @ TranslationState::Normal,
                         command_buffer,
                         ..
@@ -690,7 +743,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char(char),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: _translation_state @ TranslationState::Command,
                         command_buffer,
                         ..
@@ -703,7 +756,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Enter,
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: translation_state @ TranslationState::Command,
                         command_buffer,
                         file,
@@ -713,29 +766,30 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                     let mut buffer = command_buffer.split_whitespace();
                     let first = buffer.next().unwrap();
                     if first == "w"
-                        && let Some(file) = match buffer.next() {
-                            Some(file) => Some(file),
-                            None => file.as_deref(),
-                        } {
-                            let _file = std::fs::OpenOptions::new()
-                                .create(true)
-                                .write(true)
-                                .open(file)
-                                .unwrap();
-                            *translation_state = TranslationState::Normal;
-                            command_buffer.clear();
-                            log::warn!("saveing");
-
-                            // TODO: how should we format save file
-                            // file.write(current);
+                        && let file = match buffer.next() {
+                            Some(file) => file,
+                            None => file,
                         }
+                    {
+                        let _file = std::fs::OpenOptions::new()
+                            .create(true)
+                            .write(true)
+                            .open(file)
+                            .unwrap();
+                        *translation_state = TranslationState::Normal;
+                        command_buffer.clear();
+                        log::warn!("saveing");
+
+                        // TODO: how should we format save file
+                        // file.write(current);
+                    }
                 }
                 (
                     Event::Key(KeyEvent {
                         code: KeyCode::Char('i'),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: translation_state @ TranslationState::Normal,
                         position: (_, Some(_)),
                         ..
@@ -746,7 +800,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                         code: KeyCode::Char(' '),
                         ..
                     }),
-                    AppStateKind::Translating {
+                    TranslatingState {
                         translation_state: TranslationState::Normal,
                         command_buffer,
                         ..
@@ -754,33 +808,7 @@ fn run(mut terminal: DefaultTerminal, app: AppState<'_>) -> Result<()> {
                 ) => {
                     command_buffer.push(' ');
                 }
-                (event, _) => {
-                    file_explorer.handle(&event)?;
-                    if let Event::Key(KeyEvent {
-                        code: KeyCode::Enter,
-                        ..
-                    }) = event
-                        && !file_explorer.current().is_dir
-                    {
-                        println!("\x1b[8l\x1b[1 k");
-                        let file = read_to_string(file_explorer.current().path.clone()).unwrap();
-
-                        let current = parse(&file);
-                        // turn of any bidi mode
-                        app.kind = AppStateKind::Translating {
-                            position: ((0, 0), None),
-                            end_position: None,
-                            current,
-                            command_buffer: String::new(),
-                            file: file_explorer
-                                .current()
-                                .path
-                                .file_name()
-                                .and_then(|f| f.to_str().map(|p| format!("{p}.t"))),
-                            translation_state: TranslationState::Normal,
-                        };
-                    }
-                }
+                _ => {}
             }
         }
     }
@@ -795,10 +823,7 @@ fn get_line_position(position: &(usize, usize), line: &structure::Line, end: boo
     )
 }
 
-fn render(
-    app: &mut AppState<'_>,
-    file_explorer: &FileExplorer,
-) -> impl FnOnce(&mut ratatui::Frame<'_>) {
+fn render(app: &mut AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
     |frame: &mut Frame<'_>| {
         let _size = frame.area();
         frame.render_widget(draw_main(), frame.area());
@@ -813,7 +838,7 @@ fn render(
             .margin(1)
             .split(frame.area());
         match &mut app.kind {
-            AppStateKind::Translating {
+            TranslatingState {
                 current,
                 translation_state,
                 position: (position, sub_position),
@@ -961,10 +986,6 @@ fn render(
                     .join("\n");
                 frame.render_widget(Paragraph::new(text.to_text().unwrap()), area);
             }
-            AppStateKind::New => frame.render_widget_ref(
-                file_explorer.widget(),
-                *layout.get(1).expect("could not get area to draw"),
-            ),
         }
         frame.render_widget(
             &app.input_buffer,
