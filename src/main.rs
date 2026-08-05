@@ -59,6 +59,9 @@ fn main() -> Result<()> {
         file
     } else {
         let Some(file) = run_picker(&mut terminal)? else {
+            ratatui::restore();
+
+            print!("\x1b[8h\n\x1b[0 k\n");
             return Ok(());
         };
         file
@@ -69,13 +72,13 @@ fn main() -> Result<()> {
         AppState {
             kind: TranslatingState {
                 position: Default::default(),
-                end_position: Default::default(),
+                end_position: Option::default(),
                 command_buffer: String::new(),
                 current: text,
-                translation_state: Default::default(),
+                translation_state: TranslationState::default(),
                 file,
             },
-            status: Default::default(),
+            status: Status::default(),
             input_buffer,
         },
     );
@@ -89,6 +92,7 @@ fn load_file(file: &str, create: bool) -> (structure::Text, String) {
     if create {
         let contents = read_to_string(file).unwrap();
         (converter::parse(&contents), format!("{file}.t"))
+        // TODO: save path.t
     } else {
         todo!()
     }
@@ -98,6 +102,9 @@ fn run_picker(terminal: &mut DefaultTerminal) -> Result<Option<String>> {
     let theme = ratatui_explorer::Theme::default().add_default_title();
     let mut file_explorer = FileExplorerBuilder::build_with_theme(theme).unwrap();
     loop {
+        terminal.draw(|frame| {
+            frame.render_widget_ref(file_explorer.widget(), frame.area());
+        })?;
         if true || event::poll(Duration::from_millis(500)).unwrap() {
             let event = event::read()?;
             if let Event::Key(KeyEvent {
@@ -107,10 +114,7 @@ fn run_picker(terminal: &mut DefaultTerminal) -> Result<Option<String>> {
             {
                 break Ok(None);
             }
-            {}
-            terminal.draw(|frame| {
-                frame.render_widget_ref(file_explorer.widget(), frame.area());
-            })?;
+
             file_explorer.handle(&event)?;
             if let Event::Key(KeyEvent {
                 code: KeyCode::Enter,
@@ -773,6 +777,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                     {
                         let _file = std::fs::OpenOptions::new()
                             .create(true)
+                            .truncate(false)
                             .write(true)
                             .open(file)
                             .unwrap();
@@ -837,155 +842,150 @@ fn render(app: &mut AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
             ])
             .margin(1)
             .split(frame.area());
-        match &mut app.kind {
-            TranslatingState {
-                current,
-                translation_state,
-                position: (position, sub_position),
-                end_position,
-                ..
-            } => {
-                let area = *layout.get(1).expect("could not get area to draw");
-                let text = current
-                    .text
-                    .iter()
-                    .cloned()
-                    .enumerate()
-                    .map(|(i, line)| {
-                        // Current behaviour is to hide any commentary not current line maybe have
-                        // toggle to control
-                        if i == position.0 {
-                            let column = current
-                                .text
-                                .get(position.0)
-                                .map_or(0, |text| position_or_text_len(position.1, text));
+        let TranslatingState {
+            position: (position, sub_position),
+            end_position,
+            current,
+            translation_state,
+            ..
+        } = &mut app.kind;
+        {
+            let area = *layout.get(1).expect("could not get area to draw");
+            let text = current
+                .text
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(i, line)| {
+                    // Current behaviour is to hide any commentary not current line maybe have
+                    // toggle to control
+                    if i == position.0 {
+                        let column = current
+                            .text
+                            .get(position.0)
+                            .map_or(0, |text| position_or_text_len(position.1, text));
 
-                            let (text, plain_text, prev_i) =
-                                line.commentary.iter().sorted_by_key(|x| x.0).fold(
-                                    (String::new(), line.text, 0),
-                                    |(text, mut plain_text, prev_i), (i, commentary)| {
-                                        let processing_text = plain_text.split_off(
-                                            plain_text.char_indices().nth(*i - prev_i).unwrap().0,
-                                        );
-                                        let column_cursor =
-                                            if position.1 < *i && sub_position.is_none() {
-                                                // this is buggy
-                                                let column = column - prev_i;
-                                                // if plain_text is empty, it len() will be 0, and column +
-                                                // 1 will be 1
-                                                Some(column)
-                                            } else {
-                                                None
-                                            };
-                                        let plain_text = bidi_hebrew(&plain_text, column_cursor);
-                                        let (translation, description) = if *i == position.1
-                                            && let Some(sub_position) = sub_position
-                                        {
-                                            match sub_position {
-                                                CommentaryPosition::Description(line, column) => {
-                                                    cursor_ify_description(
-                                                        translation_state,
-                                                        commentary,
-                                                        (*line, *column),
-                                                        end_position.and_then(|(_, end)| {
-                                                            end.and_then(|end| match end {
-                                                                CommentaryPosition::Description(
-                                                                    line,
-                                                                    column,
-                                                                ) => Some((line, column)),
-                                                                _ => None,
-                                                            })
-                                                        }),
-                                                        area.width as usize,
-                                                    )
-                                                }
-                                                CommentaryPosition::Translation(column) => {
-                                                    cursor_ify_translation(
-                                                        translation_state,
-                                                        commentary,
-                                                        *column,
-                                                        end_position.and_then(|(_, end)| {
-                                                            end.and_then(|end| match end {
-                                                                CommentaryPosition::Translation(
-                                                                    end,
-                                                                ) => Some(end),
-                                                                _ => None,
-                                                            })
-                                                        }),
-                                                        area.width as usize,
-                                                    )
-                                                }
+                        let (text, plain_text, prev_i) =
+                            line.commentary.iter().sorted_by_key(|x| x.0).fold(
+                                (String::new(), line.text, 0),
+                                |(text, mut plain_text, prev_i), (i, commentary)| {
+                                    let processing_text = plain_text.split_off(
+                                        plain_text.char_indices().nth(*i - prev_i).unwrap().0,
+                                    );
+                                    let column_cursor = if position.1 < *i && sub_position.is_none()
+                                    {
+                                        // this is buggy
+                                        let column = column - prev_i;
+                                        // if plain_text is empty, it len() will be 0, and column +
+                                        // 1 will be 1
+                                        Some(column)
+                                    } else {
+                                        None
+                                    };
+                                    let plain_text = bidi_hebrew(&plain_text, column_cursor);
+                                    let (translation, description) = if *i == position.1
+                                        && let Some(sub_position) = sub_position
+                                    {
+                                        match sub_position {
+                                            CommentaryPosition::Description(line, column) => {
+                                                cursor_ify_description(
+                                                    translation_state,
+                                                    commentary,
+                                                    (*line, *column),
+                                                    end_position.and_then(|(_, end)| {
+                                                        end.and_then(|end| match end {
+                                                            CommentaryPosition::Description(
+                                                                line,
+                                                                column,
+                                                            ) => Some((line, column)),
+                                                            CommentaryPosition::Translation(_) => {
+                                                                None
+                                                            }
+                                                        })
+                                                    }),
+                                                    area.width as usize,
+                                                )
                                             }
-                                        } else {
-                                            (
-                                                translation(commentary, area.width as usize),
-                                                description(commentary, area.width as usize),
-                                            )
-                                        };
-
+                                            CommentaryPosition::Translation(column) => {
+                                                cursor_ify_translation(
+                                                    translation_state,
+                                                    commentary,
+                                                    *column,
+                                                    end_position.and_then(|(_, end)| {
+                                                        end.and_then(|end| match end {
+                                                            CommentaryPosition::Translation(
+                                                                end,
+                                                            ) => Some(end),
+                                                            CommentaryPosition::Description(..) => {
+                                                                None
+                                                            }
+                                                        })
+                                                    }),
+                                                    area.width as usize,
+                                                )
+                                            }
+                                        }
+                                    } else {
                                         (
-                                            format!(
-                                                "{}{}{}{}",
-                                                text,
-                                                if text.is_empty() { "" } else { "\n" },
-                                                translation.map_or_else(
-                                                    || plain_text(area.width as usize).join("\n"),
-                                                    |s| {
-                                                        plain_text(area.width as usize / 2_usize)
-                                                            .iter()
-                                                            .zip_longest(s)
-                                                            .map(|x| match x {
-                                                                itertools::EitherOrBoth::Both(
-                                                                    p,
-                                                                    t,
-                                                                ) => t + " " + p,
-                                                                itertools::EitherOrBoth::Left(
-                                                                    p,
-                                                                ) => {
-                                                                    "".repeat(area.width as usize)
-                                                                        + p
-                                                                }
-                                                                itertools::EitherOrBoth::Right(
-                                                                    t,
-                                                                ) => {
-                                                                    t + &""
-                                                                        .repeat(area.width as usize)
-                                                                }
-                                                            })
-                                                            .join("\n")
-                                                    }
-                                                ),
-                                                description
-                                            ),
-                                            processing_text,
-                                            *i,
+                                            translation(commentary, area.width as usize),
+                                            description(commentary, area.width as usize),
                                         )
-                                    },
-                                );
-                            // sub postion should not be some here technically as its the last thing
-                            // on the line
-                            let column_cursor = if position.1 >= prev_i && sub_position.is_none() {
-                                let column = column - prev_i;
-                                Some(column)
-                            } else {
-                                None
-                            };
-                            let plain_text: String =
-                                bidi_hebrew(&plain_text, column_cursor)(area.width as usize)
-                                    .join("\n");
-                            let separator = if text.is_empty() && !plain_text.is_empty() {
-                                ""
-                            } else {
-                                "\n"
-                            };
-                            text + separator + &plain_text
+                                    };
+
+                                    (
+                                        format!(
+                                            "{}{}{}{}",
+                                            text,
+                                            if text.is_empty() { "" } else { "\n" },
+                                            translation.map_or_else(
+                                                || plain_text(area.width as usize).join("\n"),
+                                                |s| {
+                                                    plain_text(area.width as usize / 2_usize)
+                                                        .iter()
+                                                        .zip_longest(s)
+                                                        .map(|x| match x {
+                                                            itertools::EitherOrBoth::Both(p, t) => {
+                                                                t + " " + p
+                                                            }
+                                                            itertools::EitherOrBoth::Left(p) => {
+                                                                "".repeat(area.width as usize) + p
+                                                            }
+                                                            itertools::EitherOrBoth::Right(t) => {
+                                                                t + &"".repeat(area.width as usize)
+                                                            }
+                                                        })
+                                                        .join("\n")
+                                                }
+                                            ),
+                                            description
+                                        ),
+                                        processing_text,
+                                        *i,
+                                    )
+                                },
+                            );
+                        // sub postion should not be some here technically as its the last thing
+                        // on the line
+                        let column_cursor = if position.1 >= prev_i && sub_position.is_none() {
+                            let column = column - prev_i;
+                            Some(column)
                         } else {
-                            bidi_hebrew(&line.text, None)(area.width as usize).join("\n")
-                        }
-                    })
-                    .join("\n");
-                frame.render_widget(Paragraph::new(text.to_text().unwrap()), area);
-            }
+                            None
+                        };
+                        let plain_text: String =
+                            bidi_hebrew(&plain_text, column_cursor)(area.width as usize).join("\n");
+                        let separator = if text.is_empty() && !plain_text.is_empty() {
+                            ""
+                        } else {
+                            "\n"
+                        };
+                        text + separator + &plain_text
+                    } else {
+                        bidi_hebrew(&line.text, None)(area.width as usize).join("\n")
+                    }
+                })
+                .join("\n");
+            frame.render_widget(Paragraph::new(text.to_text().unwrap()), area);
         }
         frame.render_widget(
             &app.input_buffer,
@@ -1026,6 +1026,7 @@ fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> impl Fn(usize) -> Vec
                         s
                     } else {
                         let res = "\x1b[47;5m \x1b[47;0m";
+
                         if let Some(first) = s.get_mut(0) {
                             first.insert_str(0, res);
                             s
