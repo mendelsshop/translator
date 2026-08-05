@@ -1,17 +1,18 @@
 use std::collections::BTreeMap;
 
 use rangemap::RangeMap;
+use serde::{Deserialize, Serialize};
 
 // Word(Word),
 // Parenthesis(char, Vec<Section>),
 // Sentence(Sentence),
 // Points(HashMap<usize, Section>),
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Text {
     pub text: Vec<Line>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Line {
     pub len: usize,
     pub text: String,
@@ -36,13 +37,13 @@ impl Line {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Commentary {
     pub sentence_translation: Option<String>,
     pub description_paragraph: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Word {
     pub(crate) word: String,
     pub(crate) prounouciation: Option<String>,

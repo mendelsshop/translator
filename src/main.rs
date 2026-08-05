@@ -26,7 +26,7 @@ use ratatui::{
 use ratatui_explorer::FileExplorerBuilder;
 use ratatui_textarea::TextArea;
 
-use crate::structure::{CharLength, Commentary};
+use crate::structure::{CharLength, Commentary, Text};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -91,10 +91,24 @@ fn main() -> Result<()> {
 fn load_file(file: &str, create: bool) -> (structure::Text, String) {
     if create {
         let contents = read_to_string(file).unwrap();
-        (converter::parse(&contents), format!("{file}.t"))
+        let file = format!("{file}.t");
+
+        let parse = converter::parse(&contents);
+        let mut file_handle = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&file)
+            .unwrap();
+        serde_lexpr::to_writer(&mut file_handle, &parse);
+        (parse, file)
         // TODO: save path.t
     } else {
-        todo!()
+        let file_handle = std::fs::OpenOptions::new().read(true).open(file).unwrap();
+        (
+            serde_lexpr::from_reader::<Text>(file_handle).unwrap(),
+            file.to_string(),
+        )
     }
 }
 
@@ -739,7 +753,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         ..
                     },
                 ) => {
-                    *translation_state = TranslationState::Editing;
+                    *translation_state = TranslationState::Command;
                     command_buffer.clear();
                 }
                 (
@@ -764,6 +778,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         translation_state: translation_state @ TranslationState::Command,
                         command_buffer,
                         file,
+                        current,
                         ..
                     },
                 ) => {
@@ -775,7 +790,8 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                             None => file,
                         }
                     {
-                        let _file = std::fs::OpenOptions::new()
+                        log::warn!("saveing");
+                        let mut _file = std::fs::OpenOptions::new()
                             .create(true)
                             .truncate(false)
                             .write(true)
@@ -783,10 +799,9 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                             .unwrap();
                         *translation_state = TranslationState::Normal;
                         command_buffer.clear();
-                        log::warn!("saveing");
 
-                        // TODO: how should we format save file
-                        // file.write(current);
+                        serde_lexpr::to_writer(&mut _file, &current).unwrap();
+                        log::warn!("done saveing");
                     }
                 }
                 (
