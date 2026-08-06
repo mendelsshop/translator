@@ -11,11 +11,7 @@ mod converter;
 mod structure;
 
 use core::fmt;
-use std::{
-    fs::read_to_string,
-    io::{Read, Write},
-    time::Duration,
-};
+use std::{fs::read_to_string, time::Duration};
 
 use ansi_to_tui::IntoText;
 use color_eyre::Result;
@@ -102,7 +98,7 @@ fn main() -> Result<()> {
 fn load_file(file: &str, create: Option<Commands>) -> (structure::Text, String) {
     if let Some(Commands::Create { name }) = create {
         let contents = read_to_string(file).unwrap();
-        let file = format!("{}.t", name.unwrap_or(file.to_string()));
+        let file = format!("{}.t", name.unwrap_or_else(|| file.to_string()));
 
         let parse = converter::parse(&contents);
         let file_handle = std::fs::OpenOptions::new()
@@ -802,7 +798,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         }
                     {
                         log::warn!("saveing");
-                        let mut _file = std::fs::OpenOptions::new()
+                        let file = std::fs::OpenOptions::new()
                             .create(true)
                             .truncate(false)
                             .write(true)
@@ -811,7 +807,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         *translation_state = TranslationState::Normal;
                         command_buffer.clear();
 
-                        serde_json::to_writer_pretty(_file, current);
+                        serde_json::to_writer_pretty(file, current);
                         log::warn!("done saveing");
                     }
                 }
@@ -902,15 +898,27 @@ fn render(app: &mut AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
                                     let processing_text = plain_text.split_off(
                                         plain_text.char_indices().nth(*i - prev_i).unwrap().0,
                                     );
-                                    let column_cursor = if position.1 < *i && sub_position.is_none()
-                                    {
-                                        // this is buggy
-                                        let column = column - prev_i;
-                                        // if plain_text is empty, it len() will be 0, and column +
-                                        // 1 will be 1
-                                        Some(column)
-                                    } else {
-                                        None
+
+                                    log::info!("{} {i}", position.1);
+                                    let column_cursor = {
+                                        // is cursor before end of this block of text
+                                        if position.1 < *i
+
+                                            // if cursor is in description/translation we handle different in
+                                            // another place
+                                            && sub_position.is_none()
+
+                                            // is cursor after start of this text block
+                                            && column  >= prev_i
+                                        {
+                                            // this is buggy
+                                            let column = column - prev_i;
+                                            // if plain_text is empty, it len() will be 0, and column +
+                                            // 1 will be 1
+                                            Some(column)
+                                        } else {
+                                            None
+                                        }
                                     };
                                     let plain_text = bidi_hebrew(&plain_text, column_cursor);
                                     let (translation, description) = if *i == position.1
