@@ -983,13 +983,20 @@ fn render(app: &mut AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
                                                         .zip_longest(s)
                                                         .map(|x| match x {
                                                             itertools::EitherOrBoth::Both(p, t) => {
-                                                                t + " " + p
+                                                                t + "|" + p
                                                             }
                                                             itertools::EitherOrBoth::Left(p) => {
-                                                                "".repeat(area.width as usize) + p
+                                                                " ".repeat(
+                                                                    area.width as usize / 2_usize,
+                                                                ) + "|"
+                                                                    + p
                                                             }
                                                             itertools::EitherOrBoth::Right(t) => {
-                                                                t + &"".repeat(area.width as usize)
+                                                                t + "|"
+                                                                    + &"".repeat(
+                                                                        area.width as usize
+                                                                            / 2_usize,
+                                                                    )
                                                             }
                                                         })
                                                         .join("\n")
@@ -1060,7 +1067,8 @@ fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> impl Fn(usize) -> Vec
                         })
                         .chunks(width)
                         .into_iter()
-                        .map(|x| x.flatten().collect::<String>())
+                        .with_position()
+                        .map(|(p, x)| pad_last_cursor(width, p, x, vec![' '], true))
                         .collect();
                     if cursor_placed {
                         s
@@ -1084,13 +1092,71 @@ fn bidi_hebrew(plain_text: &str, cursor: Option<usize>) -> impl Fn(usize) -> Vec
                 |i| {
                     i.chunks(width)
                         .into_iter()
-                        .map(std::iter::Iterator::collect::<String>)
+                        .with_position()
+                        .map(|(p, x)| pad_last_non_cursror(width, p, x, ' ', true))
                         .collect()
                 },
             )
         };
+
+        // TODO: chunks() make that shortest line is going to be the last line
+        // so that that the first line is first, the last line becomes the first one and the thus
+        // the first line will be the shortest
         lines.reverse();
         lines
+    }
+}
+
+// Without cursor each character is represented as char
+fn pad_last_non_cursror<T>(
+    width: usize,
+    p: itertools::Position,
+    x: impl Iterator<Item = T>,
+    default: T,
+    hebrew: bool,
+) -> String
+where
+    T: Clone,
+    std::string::String: FromIterator<T>,
+{
+    if p.is_last {
+        if hebrew {
+            x.pad_using(width, |_| default.clone()).collect::<String>()
+        } else {
+            let x = x.collect_vec();
+            std::iter::chain(vec![default; width - x.len()], x).collect()
+        }
+    } else {
+        x.collect::<String>()
+    }
+}
+
+// With cursor each character is represented as a vec of char b/c the character with the cursor also
+// contains the ansi characters for the cursor
+fn pad_last_cursor<T>(
+    width: usize,
+    p: itertools::Position,
+    x: itertools::Chunk<'_, impl Iterator<Item = T>>,
+    default: T,
+    hebrew: bool,
+) -> String
+where
+    T: IntoIterator + Clone,
+    std::string::String: FromIterator<<T as IntoIterator>::Item>,
+{
+    if p.is_last {
+        if hebrew {
+            x.pad_using(width, |_| default.clone())
+                .flatten()
+                .collect::<String>()
+        } else {
+            let x = x.collect_vec();
+            std::iter::chain(vec![default; width - x.len()], x)
+                .flatten()
+                .collect()
+        }
+    } else {
+        x.flatten().collect::<String>()
     }
 }
 
@@ -1706,14 +1772,16 @@ fn bidi_english(
                 })
                 .chunks(width)
                 .into_iter()
-                .map(|x| x.flatten().collect::<String>())
+                .with_position()
+                .map(|(p, x)| pad_last_cursor(width, p, x, vec![' '], false))
+                // .map(|x| x.flatten().collect::<String>())
                 .collect()
         }
     } else {
         bidi_inner_english(chars, |char| *char)
             .chunks(width)
-            .map(std::iter::IntoIterator::into_iter)
-            .map(std::iter::Iterator::collect::<String>)
+            .with_position()
+            .map(|(p, x)| pad_last_non_cursror(width, p, x.into_iter(), &' ', false))
             .collect()
     }
 }
