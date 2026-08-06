@@ -11,7 +11,11 @@ mod converter;
 mod structure;
 
 use core::fmt;
-use std::{fs::read_to_string, time::Duration};
+use std::{
+    fs::read_to_string,
+    io::{Read, Write},
+    time::Duration,
+};
 
 use ansi_to_tui::IntoText;
 use color_eyre::Result;
@@ -26,14 +30,20 @@ use ratatui::{
 use ratatui_explorer::FileExplorerBuilder;
 use ratatui_textarea::TextArea;
 
-use crate::structure::{CharLength, Commentary, Text};
-use clap::Parser;
+use crate::structure::{CharLength, Commentary};
+use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
 pub struct Args {
-    #[arg(short, long)]
-    create: bool,
     file: Option<String>,
+    #[command(subcommand)]
+    commands: Option<Commands>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    Create { name: Option<String> },
 }
 
 fn main() -> Result<()> {
@@ -55,6 +65,7 @@ fn main() -> Result<()> {
         area.set_block(Block::default().borders(Borders::TOP));
         area
     };
+
     let file = if let Some(file) = args.file {
         file
     } else {
@@ -66,7 +77,7 @@ fn main() -> Result<()> {
         };
         file
     };
-    let (text, file) = load_file(&file, args.create);
+    let (text, file) = load_file(&file, args.commands);
     let result = run(
         terminal,
         AppState {
@@ -88,25 +99,25 @@ fn main() -> Result<()> {
     result
 }
 
-fn load_file(file: &str, create: bool) -> (structure::Text, String) {
-    if create {
+fn load_file(file: &str, create: Option<Commands>) -> (structure::Text, String) {
+    if let Some(Commands::Create { name }) = create {
         let contents = read_to_string(file).unwrap();
-        let file = format!("{file}.t");
+        let file = format!("{}.t", name.unwrap_or(file.to_string()));
 
         let parse = converter::parse(&contents);
-        let mut file_handle = std::fs::OpenOptions::new()
+        let file_handle = std::fs::OpenOptions::new()
             .create(true)
             .truncate(false)
             .write(true)
             .open(&file)
             .unwrap();
-        serde_lexpr::to_writer(&mut file_handle, &parse);
+        serde_json::to_writer_pretty(file_handle, &parse);
         (parse, file)
-        // TODO: save path.t
     } else {
         let file_handle = std::fs::OpenOptions::new().read(true).open(file).unwrap();
+
         (
-            serde_lexpr::from_reader::<Text>(file_handle).unwrap(),
+            serde_json::from_reader(&file_handle).unwrap(),
             file.to_string(),
         )
     }
@@ -800,7 +811,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         *translation_state = TranslationState::Normal;
                         command_buffer.clear();
 
-                        serde_lexpr::to_writer(&mut _file, &current).unwrap();
+                        serde_json::to_writer_pretty(_file, current);
                         log::warn!("done saveing");
                     }
                 }
@@ -880,6 +891,10 @@ fn render(app: &mut AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
                             .get(position.0)
                             .map_or(0, |text| position_or_text_len(position.1, text));
 
+                        log::info!(
+                            "cursor {position:?} column  {column} stuff {:?}",
+                            line.commentary.keys()
+                        );
                         let (text, plain_text, prev_i) =
                             line.commentary.iter().sorted_by_key(|x| x.0).fold(
                                 (String::new(), line.text, 0),
@@ -947,7 +962,7 @@ fn render(app: &mut AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
                                         )
                                     };
 
-                                    (
+                                    let x = (
                                         format!(
                                             "{}{}{}{}",
                                             text,
@@ -976,7 +991,9 @@ fn render(app: &mut AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
                                         ),
                                         processing_text,
                                         *i,
-                                    )
+                                    );
+                                    log::info!("{}", x.0);
+                                    x
                                 },
                             );
                         // sub postion should not be some here technically as its the last thing
