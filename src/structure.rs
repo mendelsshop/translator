@@ -17,6 +17,8 @@ pub struct Line {
     pub len: usize,
     pub text: String,
     pub words: RangeMap<usize, Word>,
+    // TODO: probably make sense to maintain start and end for each commentary not just the end
+    // point
     pub commentary: BTreeMap<usize, Commentary>,
 }
 impl Line {

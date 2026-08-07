@@ -559,12 +559,12 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         let line_position = get_line_position(position, line, true);
                         if let Some(commentary) = line.commentary.get_mut(&line_position) {
                             commentary.sentence_translation.take();
+                            if position.1 < line.len {
+                                position.1 = line_position;
+                            }
+                            *sub_position = None;
                             // TODO: maybe remove whole commentary if no description
                         }
-                        if position.1 < line.len {
-                            position.1 = line_position;
-                        }
-                        *sub_position = None;
                     } else if command_buffer == " d" {
                         log::info!(" dd");
                         command_buffer.clear();
@@ -573,12 +573,12 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         let line_position = get_line_position(position, line, true);
                         if let Some(commentary) = line.commentary.get_mut(&line_position) {
                             commentary.description_paragraph.take();
+                            if position.1 < line.len {
+                                position.1 = line_position;
+                            }
+                            *sub_position = None;
                             // TODO: maybe remove whole commentary if no description
                         }
-                        if position.1 < line.len {
-                            position.1 = line_position;
-                        }
-                        *sub_position = None;
                     } else if command_buffer == " D" {
                         log::info!(" Dd");
                         command_buffer.clear();
@@ -587,13 +587,53 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         // make sure its not inside a word boundary
                         if let Some(commentary) = line.commentary.get_mut(&line_position) {
                             commentary.description_paragraph.take();
+                            // only update the position if its less than line length
+                            if position.1 < line.len {
+                                position.1 = line_position;
+                            }
+                            *sub_position = None;
                             // TODO: maybe remove whole commentary if no description
                         }
-                        // only update the position if its less than line length
-                        if position.1 < line.len {
-                            position.1 = line_position;
+                    }
+                }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('e'),
+                        ..
+                    }),
+                    TranslatingState {
+                        translation_state: TranslationState::Normal,
+                        current,
+                        command_buffer,
+                        position: (position, _),
+                        ..
+                    },
+                ) => {
+                    // TODO: [count]e
+                    if command_buffer == " " {
+                        command_buffer.clear();
+                        let line = &mut current.text[position.0];
+                        // make sure its not inside a word boundary
+                        let line_position = get_line_position(position, line, true);
+                        let line_position_new =
+                            get_line_position(&(position.0, position.1 + 1), line, true);
+
+                        log::info!(" e: {line_position} {line_position_new}");
+                        if
+                        // make sure we are not passing any other commentaries (behaviour for now)
+                        line
+                            .commentary
+                            .keys()
+                            .skip_while(|n| **n <= line_position)
+                            .next()
+                            .is_none_or(|n| *n < line_position_new)
+                            && let Some(commentary) = line.commentary.remove(&line_position)
+                        {
+                            line.commentary.insert(line_position_new, commentary);
+                            if position.1 < line.len {
+                                position.1 = line_position_new;
+                            }
                         }
-                        *sub_position = None;
                     }
                 }
 
