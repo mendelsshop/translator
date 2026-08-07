@@ -538,6 +538,64 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         *sub_position = Some(CommentaryPosition::Description(0, 0));
                     }
                 }
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('d'),
+                        ..
+                    }),
+                    TranslatingState {
+                        translation_state: TranslationState::Normal,
+                        current,
+                        command_buffer,
+                        position: (position, sub_position),
+                        ..
+                    },
+                ) => {
+                    if command_buffer == " t" {
+                        log::info!(" td");
+                        command_buffer.clear();
+                        let line = &mut current.text[position.0];
+                        // make sure its not inside a word boundary
+                        let line_position = get_line_position(position, line, true);
+                        if let Some(commentary) = line.commentary.get_mut(&line_position) {
+                            commentary.sentence_translation.take();
+                            // TODO: maybe remove whole commentary if no description
+                        }
+                        if position.1 < line.len {
+                            position.1 = line_position;
+                        }
+                        *sub_position = None;
+                    } else if command_buffer == " d" {
+                        log::info!(" dd");
+                        command_buffer.clear();
+                        let line = &mut current.text[position.0];
+                        // make sure its not inside a word boundary
+                        let line_position = get_line_position(position, line, true);
+                        if let Some(commentary) = line.commentary.get_mut(&line_position) {
+                            commentary.description_paragraph.take();
+                            // TODO: maybe remove whole commentary if no description
+                        }
+                        if position.1 < line.len {
+                            position.1 = line_position;
+                        }
+                        *sub_position = None;
+                    } else if command_buffer == " D" {
+                        log::info!(" Dd");
+                        command_buffer.clear();
+                        let line = &mut current.text[position.0];
+                        let line_position = get_line_position(position, line, false);
+                        // make sure its not inside a word boundary
+                        if let Some(commentary) = line.commentary.get_mut(&line_position) {
+                            commentary.description_paragraph.take();
+                            // TODO: maybe remove whole commentary if no description
+                        }
+                        // only update the position if its less than line length
+                        if position.1 < line.len {
+                            position.1 = line_position;
+                        }
+                        *sub_position = None;
+                    }
+                }
 
                 (
                     Event::Key(KeyEvent {
