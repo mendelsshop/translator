@@ -470,7 +470,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                 ) => {}
                 (
                     Event::Key(KeyEvent {
-                        code: KeyCode::Char('t'),
+                        code: KeyCode::Char('n'),
                         ..
                     }),
                     TranslatingState {
@@ -481,8 +481,8 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         ..
                     },
                 ) => {
-                    log::info!("t");
-                    if command_buffer == " " {
+                    if command_buffer == " t" {
+                        log::info!(" tn");
                         command_buffer.clear();
                         let line = &mut current.text[position.0];
                         // make sure its not inside a word boundary
@@ -499,23 +499,8 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                             position.1 = line_position;
                         }
                         *sub_position = Some(CommentaryPosition::Translation(0));
-                    }
-                }
-                (
-                    Event::Key(KeyEvent {
-                        code: KeyCode::Char('d'),
-                        ..
-                    }),
-                    TranslatingState {
-                        translation_state: TranslationState::Normal,
-                        current,
-                        position: (position, sub_position),
-                        command_buffer,
-                        ..
-                    },
-                ) => {
-                    log::info!("d");
-                    if command_buffer == " " {
+                    } else if command_buffer == " d" {
+                        log::info!(" dn");
                         command_buffer.clear();
                         let line = &mut current.text[position.0];
                         // make sure its not inside a word boundary
@@ -532,24 +517,8 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                             position.1 = line_position;
                         }
                         *sub_position = Some(CommentaryPosition::Description(0, 0));
-                    }
-                }
-
-                (
-                    Event::Key(KeyEvent {
-                        code: KeyCode::Char('D'),
-                        ..
-                    }),
-                    TranslatingState {
-                        translation_state: TranslationState::Normal,
-                        position: (position, sub_position),
-                        current,
-                        command_buffer,
-                        ..
-                    },
-                ) => {
-                    log::info!("D");
-                    if command_buffer == " " {
+                    } else if command_buffer == " D" {
+                        log::info!(" Dn");
                         command_buffer.clear();
                         let line = &mut current.text[position.0];
                         let line_position = get_line_position(position, line, false);
@@ -569,6 +538,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         *sub_position = Some(CommentaryPosition::Description(0, 0));
                     }
                 }
+
                 (
                     Event::Key(KeyEvent {
                         code: KeyCode::Esc, ..
@@ -824,7 +794,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                 ) => *translation_state = TranslationState::Editing,
                 (
                     Event::Key(KeyEvent {
-                        code: KeyCode::Char(' '),
+                        code: KeyCode::Char(char),
                         ..
                     }),
                     TranslatingState {
@@ -833,7 +803,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         ..
                     },
                 ) => {
-                    command_buffer.push(' ');
+                    command_buffer.push(char);
                 }
                 _ => {}
             }
@@ -1781,7 +1751,7 @@ fn bidi_english(
         bidi_inner_english(chars, |char| *char)
             .chunks(width)
             .with_position()
-            .map(|(p, x)| pad_last_non_cursror(width, p, x.into_iter(), &' ', false))
+            .map(|(p, x)| pad_last_non_cursror(width, p, x.iter(), &' ', false))
             .collect()
     }
 }
