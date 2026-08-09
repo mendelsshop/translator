@@ -618,6 +618,8 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         let line_position_new =
                             get_line_position(&(position.0, position.1 + 1), line, true);
 
+                        // If its last word and you try to move it foward it will wrap to end of
+                        // current line, maybe allow it to go foward a line if possible
                         log::info!(" e: {line_position} {line_position_new}");
                         if
                         // make sure we are not passing any other commentaries (behaviour for now)
@@ -631,6 +633,36 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         {
                             line.commentary.insert(line_position_new, commentary);
                             if position.1 < line.len {
+                                position.1 = line_position_new;
+                            }
+                        }
+                    }
+                    if command_buffer == " g" {
+                        command_buffer.clear();
+                        let line = &mut current.text[position.0];
+                        // make sure its not inside a word boundary
+                        let line_position = get_line_position(position, line, true);
+                        // If its first word and you try to move it back it won't work, maybe allow
+                        // it to go back a line if possible
+                        if let Some(line_position_new) = line
+                            .words
+                            .iter()
+                            .take_while(|x| line_position > x.0.end)
+                            .last()
+                            .map(|(std::ops::Range { end, .. }, _)| *end)
+                        {
+                            log::info!(" ge: {line_position} {line_position_new}");
+                            if
+                            // make sure we are not passing any other commentaries (behaviour for now)
+                            line
+                                .commentary
+                                .keys()
+                                .take_while(|n| **n < line_position)
+                                .last()
+                                .is_none_or(|n| *n < line_position_new)
+                                && let Some(commentary) = line.commentary.remove(&line_position)
+                            {
+                                line.commentary.insert(line_position_new, commentary);
                                 position.1 = line_position_new;
                             }
                         }
@@ -1075,7 +1107,7 @@ fn render(app: &mut AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
                                         processing_text,
                                         *i,
                                     );
-                                    log::info!("{}", x.0);
+                                    // log::info!("{}", x.0);
                                     x
                                 },
                             );
