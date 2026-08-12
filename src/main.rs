@@ -11,7 +11,7 @@ mod converter;
 mod structure;
 
 use core::fmt;
-use std::{fs::read_to_string, time::Duration};
+use std::{fs::read_to_string, ops::Range, time::Duration};
 
 use ansi_to_tui::IntoText;
 use color_eyre::Result;
@@ -613,9 +613,9 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                     if command_buffer.starts_with(' ') {
                         let mut command = command_buffer.chars();
                         _ = command.next();
-                        let _number = command
-                            .by_ref()
-                            .map_while(|n| n.to_digit(10))
+                        let number = command
+                            .take_while_ref(char::is_ascii_digit)
+                            .map(|n| (n as usize) - 48)
                             .reduce(|acc, n| acc * 10 + n)
                             .unwrap_or(1);
                         match command.next() {
@@ -624,26 +624,37 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                                 let line = &mut current.text[position.0];
                                 // make sure its not inside a word boundary
                                 let line_position = get_line_position(position, line, true);
-                                let line_position_new =
-                                    get_line_position(&(position.0, position.1 + 1), line, true);
-
-                                // If its last word and you try to move it foward it will wrap to end of
-                                // current line, maybe allow it to go foward a line if possible
-                                log::info!(" e: {line_position} {line_position_new}");
-                                if
-                                // make sure we are not passing any other commentaries (behaviour for now)
-                                line
-                                    .commentary
-                                    .keys()
-                                    .find(|n| **n > line_position)
-                                    // .skip_while(|n| **n <= line_position)
-                                    // .next()
-                                    .is_none_or(|n| *n > line_position_new)
-                                    && let Some(commentary) = line.commentary.remove(&line_position)
+                                if let Some(line_position_new) = line
+                                    .words
+                                    .iter()
+                                    // go until right before our (old)
+                                    .skip_while(|(Range { end, .. }, _)| *end < line_position)
+                                    // because nth is zero based and our number variable is one
+                                    // based, we are now at (new)
+                                    .nth(number)
+                                    .map(|(Range { end, .. }, _)| *end)
                                 {
-                                    line.commentary.insert(line_position_new, commentary);
-                                    if position.1 < line.len {
-                                        position.1 = line_position_new;
+                                    // If its last word and you try to move it foward it will wrap to end of
+                                    // current line, maybe allow it to go foward a line if possible
+                                    log::info!(" e: {line_position} {line_position_new}");
+                                    if
+                                    // make sure we are not passing any other commentaries (behaviour for now)
+                                    line
+                                        .commentary
+                                        .keys()
+                                        // find first commentary after line_position (the one on
+                                        // line_position is one we are moving) (...(possible other commentaries)..Old(you are here)..(possible other commentaries)..(New)..(possible other commentaries)..\n)
+                                        .find(|n| **n > line_position)
+                                        // either there is none (..(possible other commentaries)..Old....New...\n) or its after were want to move the
+                                        // commentary to (..(possible other commentaries)..Old....New...Commentary(other)..\n)
+                                        .is_none_or(|n| *n > line_position_new)
+                                        && let Some(commentary) =
+                                            line.commentary.remove(&line_position)
+                                    {
+                                        line.commentary.insert(line_position_new, commentary);
+                                        if position.1 < line.len {
+                                            position.1 = line_position_new;
+                                        }
                                     }
                                 }
                             }
@@ -657,8 +668,17 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                                 if let Some(line_position_new) = line
                                     .words
                                     .iter()
-                                    .take_while_inclusive(|x| line_position > x.0.end)
-                                    .last()
+                                    // reverse b/c skip_while removes double ended iterator
+                                    // (..new....old..) -> (n..old(r)....new(r)..0)
+                                    .rev()
+                                    // since we reverse we the first element is going to have the
+                                    // biggest postion number so we skip untill we find old (we
+                                    // include that in our new iterator)
+                                    .skip_while(|x| line_position < x.0.end)
+                                    // because nth is zero based and our number variable is one
+                                    // based (note this is really nth_back since the iterator is
+                                    // backwards so this is going [number] words back from (old) to (new)
+                                    .nth(number)
                                     .map(|(std::ops::Range { end, .. }, _)| *end)
                                 {
                                     log::info!(" ge: {line_position} {line_position_new}");
@@ -667,9 +687,15 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                                     line
                                         .commentary
                                         .keys()
-                                        .take_while(|n| **n < line_position)
-                                        .last()
-                                        .is_none_or(|n| *n < line_position_new)
+                                        // find first commentary after or on line_position_new (we
+                                        // are trying to move to line_position_new so if there is
+                                        // one there its an obstruction)(..(possible other commentaries)...Old(you are
+                                        // here)..(possible commentaries).(New)...(possible other commentaries)..\n.)
+                                        .find(|n| **n >= line_position_new)
+                                        // either there is none(cannot happen b/c the commentary we
+                                        // are tring to move is further in the line) (..(possible other commentaries)..New....Old...\n) or its after
+                                        // where the commentary we moving from (..(possible other commentaries)..New....Old...Commentary(other)..\n)
+                                        .is_none_or(|n| *n >= line_position)
                                         && let Some(commentary) =
                                             line.commentary.remove(&line_position)
                                     {
