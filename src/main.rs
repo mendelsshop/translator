@@ -171,7 +171,7 @@ pub enum CommentaryPosition {
     Description(usize, usize),
     Translation(usize),
 }
-type Cursor = ((usize, usize), Option<CommentaryPosition>);
+type Cursor = ((usize, usize, Option<usize>), Option<CommentaryPosition>);
 
 #[derive(Debug, Clone)]
 pub struct TranslatingState {
@@ -310,6 +310,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                     {
                         log::trace!("l(active)");
                         position.1 += 1;
+                        position.2 = None;
                     }
                 }
 
@@ -355,6 +356,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                                 // if cursor was from previous line which was longer we have to go
                                 // back 2 b/c len is 1 based, and we where already at last column
                                 .min(current.text[position.0].len.saturating_sub(2));
+                            position.2 = None;
                         }
                         _ => (),
                     }
@@ -386,6 +388,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         *sub_position = None;
                         log::trace!("k(active)");
                         position.0 -= 1;
+                        position.2 = None;
                     }
                 }
                 (
@@ -421,6 +424,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                     // TODO: it depends on how the last line ends(CLRF...)
                     else if position.0 < current.text.len().saturating_sub(2) {
                         position.0 += 1;
+                        position.2 = None;
                         // if editing translation and press j then you exit translation (b/c not
                         // more than one line)
                         // if editing translation and press j then you exit translation
@@ -497,6 +501,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                             .get_or_insert_default();
                         if position.1 < line.len {
                             position.1 = line_position;
+                            position.2 = Some(todo!());
                         }
                         *sub_position = Some(CommentaryPosition::Translation(0));
                     } else if command_buffer == " d" {
@@ -515,6 +520,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                             .get_or_insert_with(|| vec![String::new()]);
                         if position.1 < line.len {
                             position.1 = line_position;
+                            position.2 = Some(todo!());
                         }
                         *sub_position = Some(CommentaryPosition::Description(0, 0));
                     } else if command_buffer == " D" {
@@ -534,6 +540,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         // only update the position if its less than line length
                         if position.1 < line.len {
                             position.1 = line_position;
+                            position.2 = Some(todo!());
                         }
                         *sub_position = Some(CommentaryPosition::Description(0, 0));
                     }
@@ -561,6 +568,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                             commentary.sentence_translation.take();
                             if position.1 < line.len {
                                 position.1 = line_position;
+                                position.2 = Some(todo!());
                             }
                             *sub_position = None;
                             // TODO: maybe remove whole commentary if no description
@@ -575,6 +583,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                             commentary.description_paragraph.take();
                             if position.1 < line.len {
                                 position.1 = line_position;
+                                position.2 = Some(todo!());
                             }
                             *sub_position = None;
                             // TODO: maybe remove whole commentary if no description
@@ -590,6 +599,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                             // only update the position if its less than line length
                             if position.1 < line.len {
                                 position.1 = line_position;
+                                position.2 = Some(todo!());
                             }
                             *sub_position = None;
                             // TODO: maybe remove whole commentary if no description
@@ -624,8 +634,11 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                                 let line = &mut current.text[position.0];
                                 // make sure its not inside a word boundary
                                 let line_position = get_line_position(position, line, true);
-                                let line_position_new =
-                                    get_line_position(&(position.0, position.1 + 1), line, true);
+                                let line_position_new = get_line_position(
+                                    &(position.0, position.1 + 1, position.2),
+                                    line,
+                                    true,
+                                );
 
                                 // If its last word and you try to move it foward it will wrap to end of
                                 // current line, maybe allow it to go foward a line if possible
@@ -675,6 +688,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                                     {
                                         line.commentary.insert(line_position_new, commentary);
                                         position.1 = line_position_new;
+                                        position.2 = Some(todo!());
                                     }
                                 }
                             }
@@ -955,7 +969,11 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
     }
 }
 
-fn get_line_position(position: &(usize, usize), line: &structure::Line, end: bool) -> usize {
+fn get_line_position(
+    position: &(usize, usize, Option<usize>),
+    line: &structure::Line,
+    end: bool,
+) -> usize {
     line.words.get_key_value(&position.1).map_or_else(
         || position_or_text_len(position.1, line),
         |(range, _)| {

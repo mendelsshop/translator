@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Range};
 
 use rangemap::RangeMap;
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,10 @@ pub struct Line {
     // TODO: probably make sense to maintain start and end for each commentary not just the end
     // point
     pub commentary: BTreeMap<usize, Commentary>,
+    // Should be rebuilt each time based on words (parse into seperate struct and then convert to
+    // this fully form)
+    #[serde(skip)]
+    pub indicies_to_words: Vec<Range<usize>>,
 }
 impl Line {
     pub fn position_or_text_len(&self, position: usize) -> usize {

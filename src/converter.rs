@@ -10,19 +10,22 @@ pub fn parse(s: &str) -> structure::Text {
             .split('\n')
             .map(|text| {
                 let char_indices = text.char_indices();
-                let (mut words, state) = char_indices
+                let mut words = RangeMap::new();
+                let mut indicies_to_words = vec![];
+                let state = char_indices
                     .clone()
                     .enumerate()
                     .filter(|(_, (_, char))| char.is_alphabetic())
                     .fold(
-                        (RangeMap::new(), None::<(usize, usize, Vec<char>)>),
-                        |(mut map, state), (i, (_byte_i, char))| {
+                        None::<(usize, usize, Vec<char>)>,
+                        |state, (i, (_byte_i, char))| {
                             if let Some((start, stop, mut chars)) = state {
                                 if stop + 1 == i {
                                     chars.push(char);
-                                    (map, Some((start, i, chars)))
+                                    Some((start, i, chars))
                                 } else {
-                                    map.insert(
+                                    indicies_to_words.push(start..(stop + 1));
+                                    words.insert(
                                         start..(stop + 1),
                                         Word {
                                             word: chars.iter().collect(),
@@ -30,15 +33,16 @@ pub fn parse(s: &str) -> structure::Text {
                                             translation: None,
                                         },
                                     );
-                                    (map, Some((i, i, vec![char])))
+                                    Some((i, i, vec![char]))
                                 }
                             } else {
-                                (map, Some((i, i, vec![char])))
+                                Some((i, i, vec![char]))
                             }
                         },
                     );
 
                 if let Some((start, stop, chars)) = state {
+                    indicies_to_words.push(start..(stop + 1));
                     words.insert(
                         start..(stop + 1),
                         Word {
@@ -49,6 +53,7 @@ pub fn parse(s: &str) -> structure::Text {
                     );
                 }
                 Line {
+                    indicies_to_words,
                     text: text.to_string(),
                     words,
                     commentary: BTreeMap::new(),
