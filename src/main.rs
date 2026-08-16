@@ -8,10 +8,11 @@
 use itertools::Itertools;
 mod converter;
 
+mod pdf;
 mod structure;
 
 use core::fmt;
-use std::{fs::read_to_string, ops::Range, time::Duration};
+use std::{fs::read_to_string, ops::Range, path::Path, time::Duration};
 
 use ansi_to_tui::IntoText;
 use color_eyre::Result;
@@ -708,7 +709,28 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         }
                     }
                 }
-
+                (
+                    Event::Key(KeyEvent {
+                        code: KeyCode::Char('w'),
+                        ..
+                    }),
+                    TranslatingState {
+                        translation_state: TranslationState::Normal,
+                        current,
+                        command_buffer,
+                        position: (_position, _),
+                        file,
+                        ..
+                    },
+                ) => {
+                    if command_buffer == " " {
+                        command_buffer.clear();
+                        let mut pdf = pdf::create_pdf(current);
+                        let path = Path::new(file).with_extension("pdf");
+                        pdf.save(&path).unwrap();
+                        log::info!("exporiting {path:?}");
+                    }
+                }
                 (
                     Event::Key(KeyEvent {
                         code: KeyCode::Esc, ..
