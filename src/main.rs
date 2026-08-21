@@ -731,7 +731,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                 ) => {
                     if command_buffer == " " {
                         command_buffer.clear();
-                        let mut pdf = html::create_html(current);
+                        let pdf = html::create_html(current);
                         let path = Path::new(file).with_extension("html");
                         fs::write(&path, pdf.to_string().into_bytes());
                         log::info!("exporiting {path:?}");
