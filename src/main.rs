@@ -488,6 +488,7 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                         ..
                     },
                 ) => {
+                    log::info!("{command_buffer}n");
                     if command_buffer == " t" {
                         log::info!(" tn");
                         command_buffer.clear();
@@ -537,12 +538,14 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                                 description_paragraph: None,
                             })
                             .description_paragraph
-                            .get_or_insert_default();
+                            .get_or_insert_with(|| vec![String::new()]);
                         // only update the position if its less than line length
                         if position.1 < line.len {
                             position.1 = line_position;
                         }
                         *sub_position = Some(CommentaryPosition::Description(0, 0));
+                    } else {
+                        command_buffer.push('n');
                     }
                 }
                 (
@@ -601,6 +604,8 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                             *sub_position = None;
                             // TODO: maybe remove whole commentary if no description
                         }
+                    } else {
+                        command_buffer.push('t');
                     }
                 }
                 (
@@ -711,7 +716,9 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                                     }
                                 }
                             }
-                            _ => {}
+                            _ => {
+                                command_buffer.push('d');
+                            }
                         }
                     }
                 }
@@ -731,10 +738,15 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                 ) => {
                     if command_buffer == " " {
                         command_buffer.clear();
-                        let pdf = html::create_html(current);
+                        let html = html::create_html(current);
                         let path = Path::new(file).with_extension("html");
-                        fs::write(&path, pdf.to_string().into_bytes());
+                        fs::write(&path, html.to_string().into_bytes());
                         log::info!("exporiting {path:?}");
+
+                        // let mut pdf = pdf::create_pdf(current);
+                        // let path = Path::new(file).with_extension("pdf");
+                        // pdf.save(&path);
+                        // log::info!("exporiting {path:?}");
                     }
                 }
                 (
