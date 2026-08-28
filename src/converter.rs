@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use rangemap::RangeMap;
+use rangemap::{RangeInclusiveMap, RangeMap};
 
 use crate::structure::{self, Line, Word};
 
@@ -9,38 +9,78 @@ pub fn parse(s: &str) -> structure::Text {
         text: s
             .split('\n')
             .map(|text| {
-                let char_indices = text.char_indices();
+                let char_indices = text.chars();
                 let (mut words, state) = char_indices
                     .clone()
                     .enumerate()
-                    .filter(|(_, (_, char))| char.is_alphabetic())
+                    .filter(|(_, char)| {
+                        char.is_alphabetic()
+                            || *char == '“'
+                            || *char == '"'
+                            || *char == '\''
+                            || *char == '’'
+                    })
                     .fold(
-                        (RangeMap::new(), None::<(usize, usize, Vec<char>)>),
-                        |(mut map, state), (i, (_byte_i, char))| {
-                            if let Some((start, stop, mut chars)) = state {
+                        (
+                            RangeInclusiveMap::new(),
+                            None::<(usize, usize, Option<usize>, Vec<char>)>,
+                        ),
+                        |(mut map, state), (i, char)| {
+                            log::info!("{i} {char} ");
+                            if let Some((start, stop, last_stop, mut chars)) = state {
+                                log::info!("{stop}");
                                 if stop + 1 == i {
                                     chars.push(char);
-                                    (map, Some((start, i, chars)))
+                                    (map, Some((start, i, Some(stop), chars)))
                                 } else {
+                                    let range = if chars
+                                        .pop_if(|char| *char == '“' || *char == '"')
+                                        .is_some()
+                                    {
+                                        start..=(last_stop.unwrap())
+                                    } else {
+                                        start..=(stop)
+                                    };
+                                    log::info!("chars: {chars:?} {range:?}");
                                     map.insert(
-                                        start..(stop + 1),
+                                        range,
                                         Word {
                                             word: chars.iter().collect(),
                                             prounouciation: None,
                                             translation: None,
                                         },
                                     );
-                                    (map, Some((i, i, vec![char])))
+                                    (
+                                        map,
+                                        if char == '“' || char == '"' {
+                                            None
+                                        } else {
+                                            Some((i, i, None, vec![char]))
+                                        },
+                                    )
                                 }
                             } else {
-                                (map, Some((i, i, vec![char])))
+                                (
+                                    map,
+                                    if char == '“' || char == '"' {
+                                        None
+                                    } else {
+                                        Some((i, i, None, vec![char]))
+                                    },
+                                )
                             }
                         },
                     );
 
-                if let Some((start, stop, chars)) = state {
+                if let Some((start, stop, last_stop, mut chars)) = state {
+                    let range = if chars.pop_if(|char| *char == '“' || *char == '"').is_some() {
+                        start..=(last_stop.unwrap())
+                    } else {
+                        start..=(stop)
+                    };
+                    log::info!("chars: {chars:?} {range:?}");
                     words.insert(
-                        start..(stop + 1),
+                        range,
                         Word {
                             word: chars.iter().collect(),
                             prounouciation: None,

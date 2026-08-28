@@ -15,7 +15,7 @@ mod structure;
 use core::fmt;
 use std::{
     fs::{self, read_to_string},
-    ops::Range,
+    ops::{Range, RangeInclusive},
     path::Path,
     time::Duration,
 };
@@ -640,11 +640,11 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                                     .words
                                     .iter()
                                     // go until right before our (old)
-                                    .skip_while(|(Range { end, .. }, _)| *end < line_position)
+                                    .skip_while(|(range, _)| *range.end() < line_position)
                                     // because nth is zero based and our number variable is one
                                     // based, we are now at (new)
                                     .nth(number)
-                                    .map(|(Range { end, .. }, _)| *end)
+                                    .map(|(range, _)| *range.end())
                                 {
                                     // If its last word and you try to move it foward it will wrap to end of
                                     // current line, maybe allow it to go foward a line if possible
@@ -686,12 +686,12 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState<'_>) -> Result<()> {
                                     // since we reverse we the first element is going to have the
                                     // biggest postion number so we skip untill we find old (we
                                     // include that in our new iterator)
-                                    .skip_while(|x| line_position < x.0.end)
+                                    .skip_while(|x| line_position < *x.0.end())
                                     // because nth is zero based and our number variable is one
                                     // based (note this is really nth_back since the iterator is
                                     // backwards so this is going [number] words back from (old) to (new)
                                     .nth(number)
-                                    .map(|(std::ops::Range { end, .. }, _)| *end)
+                                    .map(|(range, _)| *range.end())
                                 {
                                     log::info!(" ge: {line_position} {line_position_new}");
                                     if
@@ -1025,7 +1025,8 @@ fn get_line_position(position: &(usize, usize), line: &structure::Line, end: boo
     line.words.get_key_value(&position.1).map_or_else(
         || position_or_text_len(position.1, line),
         |(range, _)| {
-            if end { range.end } else { range.start }
+            log::info!("end {end} {range:?}");
+            if end { *range.end() } else { *range.start() }
         },
     )
 }
@@ -1075,11 +1076,18 @@ fn render(app: &mut AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
                             line.commentary.iter().sorted_by_key(|x| x.0).fold(
                                 (String::new(), line.text, 0),
                                 |(text, mut plain_text, prev_i), (i, commentary)| {
-                                    let processing_text = plain_text.split_off(
-                                        plain_text.char_indices().nth(*i - prev_i).unwrap().0,
+                                    log::info!(
+                                        "{plain_text} {i} {prev_i} {} {:?}",
+                                        i - prev_i,
+                                        plain_text.char_indices().enumerate().collect_vec()
                                     );
+                                    let processing_text =
+                                        plain_text.char_indices().nth(i - prev_i + 1).map_or_else(
+                                            || String::new(),
+                                            |(i, _)| plain_text.split_off(i),
+                                        );
 
-                                    log::info!("{} {i}", position.1);
+                                    log::info!("{} {i} {plain_text}", position.1);
                                     let column_cursor = {
                                         // is cursor before end of this block of text
                                         if position.1 < *i

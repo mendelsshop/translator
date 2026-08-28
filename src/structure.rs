@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use rangemap::RangeMap;
+use rangemap::{RangeInclusiveMap, RangeMap};
 use serde::{Deserialize, Serialize};
 
 // Word(Word),
@@ -16,7 +16,7 @@ pub struct Text {
 pub struct Line {
     pub len: usize,
     pub text: String,
-    pub words: RangeMap<usize, Word>,
+    pub words: RangeInclusiveMap<usize, Word>,
     // TODO: probably make sense to maintain start and end for each commentary not just the end
     // point
     pub commentary: BTreeMap<usize, Commentary>,
