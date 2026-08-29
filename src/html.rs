@@ -16,7 +16,12 @@ pub fn create_html(text: &Text) -> Html {
                     (d, 0, &line.text as &str),
                     |(d, prev_i, remaining_text), (i, commentary)| {
                         let (text, remaining_text) = remaining_text
-                            .split_at(remaining_text.char_indices().nth(*i - prev_i).unwrap().0);
+                            .char_indices()
+                            .nth(*i - prev_i + 1)
+                            .map_or_else(
+                                || (remaining_text, ""),
+                                |(i, _)| remaining_text.split_at(i),
+                            );
 
                         let d = d.division(|d| {
                             if let Some(translation) = &commentary.sentence_translation {
