@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use rangemap::{RangeInclusiveMap, RangeMap};
+use rangemap::RangeInclusiveMap;
 use serde::{Deserialize, Serialize};
 
 // Word(Word),

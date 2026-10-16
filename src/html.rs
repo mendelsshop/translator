@@ -17,7 +17,7 @@ pub fn create_html(text: &Text) -> Html {
                     |(d, prev_i, remaining_text), (i, commentary)| {
                         let (text, remaining_text) = remaining_text
                             .char_indices()
-                            .nth(*i - prev_i + 1)
+                            .nth(*i - prev_i + 2)
                             .map_or_else(
                                 || (remaining_text, ""),
                                 |(i, _)| remaining_text.split_at(i),
@@ -47,7 +47,7 @@ pub fn create_html(text: &Text) -> Html {
                         };
                         (
                             d.line_break(|l| l.style(LINE_BREAK_STYLE)),
-                            *i,
+                            *i + 2,
                             remaining_text,
                         )
                     },

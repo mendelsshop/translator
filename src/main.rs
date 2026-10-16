@@ -15,7 +15,6 @@ mod structure;
 use core::fmt;
 use std::{
     fs::{self, read_to_string},
-    ops::{Range, RangeInclusive},
     path::Path,
     time::Duration,
 };
@@ -1082,8 +1081,8 @@ fn render(app: &mut AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
                                         plain_text.char_indices().enumerate().collect_vec()
                                     );
                                     let processing_text =
-                                        plain_text.char_indices().nth(i - prev_i + 1).map_or_else(
-                                            || String::new(),
+                                        plain_text.char_indices().nth(i - prev_i + 2).map_or_else(
+                                            String::new,
                                             |(i, _)| plain_text.split_off(i),
                                         );
 
@@ -1193,7 +1192,7 @@ fn render(app: &mut AppState<'_>) -> impl FnOnce(&mut ratatui::Frame<'_>) {
                                             description
                                         ),
                                         processing_text,
-                                        *i,
+                                        *i + 2,
                                     );
                                     // log::info!("{}", x.0);
                                     x
